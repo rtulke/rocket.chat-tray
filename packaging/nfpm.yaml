@@ -5,7 +5,7 @@ version: ${PKG_VERSION}
 release: "1"
 section: net
 priority: optional
-maintainer: rtulke <https://github.com/rtulke>
+maintainer: Robert Tulke <rt@debian.sh>
 description: |
   Rocket.Chat system tray notifier for GNOME.
   Per-user GNOME system-tray client for a Rocket.Chat server. Shows
@@ -14,7 +14,7 @@ description: |
   Ships its own Python environment (PySide6 included) so it installs
   cleanly across Debian/Ubuntu releases that don't package PySide6
   themselves.
-vendor: rtulke
+vendor: Robert Tulke
 homepage: https://github.com/rtulke/rocket.chat-tray/
 license: MIT
 
