@@ -79,16 +79,24 @@ def _section_label(text: str) -> QLabel:
 class SettingsDialog(QDialog):
     def __init__(
         self, settings, current_server_url: str, current_verify_ssl: bool,
+        current_autostart_enabled: bool,
         on_test_sound: Callable[[], None], on_update_server: Callable[[str, bool], None],
-        on_reset_login: Callable[[], None], parent=None,
+        on_reset_login: Callable[[], None], on_set_autostart: Callable[[bool], None], parent=None,
     ):
         super().__init__(parent)
         self._settings = settings
         self._on_test_sound = on_test_sound
         self._on_update_server = on_update_server
+        self._on_set_autostart = on_set_autostart
 
         self.setWindowTitle("Rocket.Chat Tray — Einstellungen")
         self.setMinimumWidth(528)
+
+        self._autostart_toggle = ToggleSwitch()
+        self._autostart_toggle.setChecked(current_autostart_enabled)
+        start_card = _boxed_list([
+            _label_row("Beim Anmelden automatisch starten", self._autostart_toggle),
+        ])
 
         self._blink_toggle = ToggleSwitch()
         self._blink_toggle.setChecked(settings.blink_enabled)
@@ -163,6 +171,8 @@ class SettingsDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(18)
+        layout.addWidget(_section_label("Start"))
+        layout.addWidget(start_card)
         layout.addWidget(_section_label("Server"))
         layout.addWidget(server_card)
         layout.addWidget(_section_label("Benachrichtigungen"))
@@ -180,6 +190,7 @@ class SettingsDialog(QDialog):
         self._on_test_sound()
 
     def _handle_accept(self) -> None:
+        self._on_set_autostart(self._autostart_toggle.isChecked())
         url = self._server_url_field.text().strip().rstrip("/")
         if url:
             self._on_update_server(url, self._verify_ssl_toggle.isChecked())

@@ -9,7 +9,7 @@ from PySide6.QtCore import QTimer
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication, QMessageBox
 
-from . import auth, presence
+from . import auth, autostart, presence
 from .config import AdminConfig, ConfigError, UserSettings
 from .deeplink import RoomOpener
 from .idle_watch import IdleWatcher
@@ -123,8 +123,8 @@ def main() -> int:
 
     def open_settings() -> None:
         dialog = SettingsDialog(
-            settings, admin_config.server_url, admin_config.verify_ssl,
-            notifier.play_test_sound, update_server, reenter_password,
+            settings, admin_config.server_url, admin_config.verify_ssl, autostart.is_enabled(),
+            notifier.play_test_sound, update_server, reenter_password, autostart.set_enabled,
         )
         if dialog.exec() == SettingsDialog.DialogCode.Accepted:
             idle_watcher.set_enabled(settings.idle_detection_enabled)
