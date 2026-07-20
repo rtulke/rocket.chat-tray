@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Rocket.Chat Tray
+Exec=/usr/bin/rocketchat-tray
+Icon=rocketchat-tray
+X-GNOME-Autostart-enabled=true
+NoDisplay=true
+Comment=Rocket.Chat notification tray icon
+Categories=Network;InstantMessaging;

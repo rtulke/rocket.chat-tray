@@ -216,3 +216,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# rocketchat-tray: packaging build output (see packaging/build-venv.sh)
+/stage/
+*.deb

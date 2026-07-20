@@ -1,0 +1,60 @@
+name: rocketchat-tray
+arch: amd64
+platform: linux
+version: ${PKG_VERSION}
+release: "1"
+section: net
+priority: optional
+maintainer: rtulke <https://github.com/rtulke>
+description: |
+  Rocket.Chat system tray notifier for GNOME.
+  Per-user GNOME system-tray client for a Rocket.Chat server. Shows
+  connection status and Rocket.Chat presence (online/away/busy/offline) as
+  a coloured tray icon, and notifies the user when a new message arrives.
+  Ships its own Python environment (PySide6 included) so it installs
+  cleanly across Debian/Ubuntu releases that don't package PySide6
+  themselves.
+vendor: rtulke
+homepage: https://github.com/rtulke/rocket.chat-tray/
+license: MIT
+
+depends:
+  - python3 (>= 3.11)
+  - libglib2.0-bin
+  - pulseaudio-utils
+
+recommends:
+  - gnome-shell-extension-appindicator
+
+contents:
+  # Bundled Python environment (built by packaging/build-venv.sh into
+  # ./stage before nfpm runs) -- includes PySide6, requests, keyring, etc.
+  - src: ./stage/opt/rocketchat-tray/venv
+    dst: /opt/rocketchat-tray/venv
+
+  - src: ./packaging/rocketchat-tray
+    dst: /usr/bin/rocketchat-tray
+    file_info:
+      mode: 0755
+
+  - src: ./packaging/autostart.desktop
+    dst: /etc/xdg/autostart/rocketchat-tray.desktop
+
+  - src: ./packaging/launcher.desktop
+    dst: /usr/share/applications/rocketchat-tray.desktop
+
+  - src: ./packaging/icons/rocketchat-tray.svg
+    dst: /usr/share/icons/hicolor/scalable/apps/rocketchat-tray.svg
+
+  - src: ./packaging/config.ini.example
+    dst: /etc/rocketchat-tray/config.ini
+    type: config|noreplace
+
+  - src: ./LICENSE
+    dst: /usr/share/doc/rocketchat-tray/LICENSE
+
+  - src: ./README.md
+    dst: /usr/share/doc/rocketchat-tray/README.md
+
+scripts:
+  postinstall: ./packaging/postinstall.sh

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Rocket.Chat Tray
+Exec=/usr/bin/rocketchat-tray
+Icon=rocketchat-tray
+Comment=Rocket.Chat notification tray icon
+Categories=Network;InstantMessaging;
+Terminal=false

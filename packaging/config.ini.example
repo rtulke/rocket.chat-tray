@@ -1,0 +1,11 @@
+# Rocket.Chat Tray -- admin-managed server configuration.
+# Edit server_url below to point at your internal Rocket.Chat instance.
+# This file is a dpkg conffile: your edits survive package upgrades.
+#
+# Users can also override this from the app's own Settings dialog, which
+# takes precedence once set (stored per-user in
+# ~/.config/rocketchat-tray/settings.json) -- this file is only the
+# fleet-wide default for users who haven't set their own.
+[server]
+url = https://REPLACE-ME.internal.example.com
+verify_ssl = true

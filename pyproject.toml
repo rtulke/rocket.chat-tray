@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rocketchat-tray"
+version = "0.0.34"
+description = "GNOME system-tray client for Rocket.Chat notifications"
+license = "MIT"
+requires-python = ">=3.11"
+dependencies = [
+    # Essentials only (QtCore/Gui/Widgets/DBus/Network) -- NOT the "PySide6"
+    # meta-package, which also drags in PySide6-Addons (~175MB: QtWebEngine/
+    # Chromium, Qt3D, Charts, and everything else we don't use) just for
+    # QtMultimedia. We don't need QtMultimedia either -- see notifier.py,
+    # sound playback goes through paplay instead.
+    "PySide6-Essentials",
+    "requests",
+    "urllib3",
+    "keyring",
+    "secretstorage",
+    "websocket-client",
+]
+
+[project.urls]
+Repository = "https://github.com/rtulke/rocket.chat-tray/"
+
+[project.scripts]
+rocketchat-tray = "rocketchat_tray.main:main"
+
+[tool.setuptools.packages.find]
+include = ["rocketchat_tray*"]
+
+[tool.setuptools.package-data]
+rocketchat_tray = ["resources/icons/*.svg", "resources/sounds/*.wav"]
