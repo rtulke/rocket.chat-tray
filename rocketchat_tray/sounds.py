@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .i18n import tr
 from .resources import SOUND_PATH
 
 # Where GNOME/freedesktop notification-relevant sound themes typically live.
@@ -14,20 +15,20 @@ _SYSTEM_THEME_DIRS = [
 ]
 _EXTENSIONS = (".oga", ".ogg", ".wav")
 
-# (key, label, filename stem to search for across _SYSTEM_THEME_DIRS).
+# (key, i18n key, filename stem to search for across _SYSTEM_THEME_DIRS).
 # "click"/"string"/"swing"/"hum" are GNOME Settings' own alert-sound picker
 # choices; the rest are the standard freedesktop sound theme's
 # notification-relevant sounds. Curated to exclude non-notification content
 # (ringtones, UI clicks, channel test tones, ...) also present in those themes.
 _CATALOG = [
-    ("click", "Klick"),
-    ("string", "Zupfton"),
-    ("swing", "Swing"),
-    ("hum", "Summen"),
-    ("message-new-instant", "Nachricht (kurz)"),
-    ("message", "Nachricht"),
-    ("bell", "Glocke"),
-    ("complete", "Fertig-Ton"),
+    ("click", "sounds.click"),
+    ("string", "sounds.string"),
+    ("swing", "sounds.swing"),
+    ("hum", "sounds.hum"),
+    ("message-new-instant", "sounds.message_short"),
+    ("message", "sounds.message"),
+    ("bell", "sounds.bell"),
+    ("complete", "sounds.complete"),
 ]
 
 DEFAULT_CHOICE = "message-new-instant"
@@ -46,11 +47,11 @@ def available_choices() -> list[tuple[str, str, Path]]:
     """(key, label, path) for every sound that actually exists on this
     system. The app's own bundled chime is always included as a fallback
     that works even with no system sound theme installed."""
-    choices = [("bundled", "Standard (App-eigen)", SOUND_PATH)]
-    for key, label in _CATALOG:
+    choices = [("bundled", tr("sounds.bundled"), SOUND_PATH)]
+    for key, i18n_key in _CATALOG:
         path = _find(key)
         if path:
-            choices.append((key, label, path))
+            choices.append((key, tr(i18n_key), path))
     return choices
 
 

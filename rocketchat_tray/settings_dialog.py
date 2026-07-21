@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import sounds
+from .i18n import tr
 from .widgets import ToggleSwitch
 
 # Mimics GNOME's "boxed list" preferences style (see e.g. GNOME Settings, or
@@ -94,13 +95,13 @@ class SettingsDialog(QDialog):
         self._on_update_server = on_update_server
         self._on_set_autostart = on_set_autostart
 
-        self.setWindowTitle("Rocket.Chat Tray — Einstellungen")
+        self.setWindowTitle(tr("settings.title"))
         self.setMinimumWidth(528)
 
         self._autostart_toggle = ToggleSwitch()
         self._autostart_toggle.setChecked(current_autostart_enabled)
         start_card = _boxed_list([
-            _label_row("Beim Anmelden automatisch starten", self._autostart_toggle),
+            _label_row(tr("settings.autostart"), self._autostart_toggle),
         ])
 
         self._blink_toggle = ToggleSwitch()
@@ -115,14 +116,14 @@ class SettingsDialog(QDialog):
         self._server_url_field = QLineEdit(current_server_url)
         self._verify_ssl_toggle = ToggleSwitch()
         self._verify_ssl_toggle.setChecked(current_verify_ssl)
-        reset_login_button = QPushButton("Anmeldung zurücksetzen…")
+        reset_login_button = QPushButton(tr("settings.reset_login"))
         reset_login_button.clicked.connect(on_reset_login)
         reset_login_row = _row(reset_login_button)
         reset_login_row.layout().insertStretch(0)
 
         server_card = _boxed_list([
-            _row(QLabel("Server-URL"), self._server_url_field),  # no stretch: field fills the row
-            _label_row("SSL-Zertifikat prüfen", self._verify_ssl_toggle),
+            _row(QLabel(tr("settings.server_url")), self._server_url_field),  # no stretch: field fills the row
+            _label_row(tr("settings.verify_ssl"), self._verify_ssl_toggle),
             reset_login_row,
         ])
 
@@ -140,7 +141,7 @@ class SettingsDialog(QDialog):
         self._volume_slider.setValue(round(settings.sound_volume * 100))
         self._volume_slider.setMinimumWidth(140)
 
-        test_button = QPushButton("Test")
+        test_button = QPushButton(tr("settings.test"))
         test_button.clicked.connect(self._handle_test_sound)
 
         def _update_sound_controls_enabled(enabled: bool) -> None:
@@ -152,20 +153,20 @@ class SettingsDialog(QDialog):
         _update_sound_controls_enabled(settings.sound_enabled)
 
         notifications_card = _boxed_list([
-            _label_row("Symbol blinkt bei neuen Nachrichten", self._blink_toggle),
-            _label_row("Ton bei neuen Nachrichten", self._sound_toggle),
-            _label_row("Ton auswählen", self._sound_choice_combo),
-            _row(QLabel("Lautstärke"), self._volume_slider, test_button),
-            _label_row("Status-Tooltip anzeigen", self._tooltip_toggle),
+            _label_row(tr("settings.blink"), self._blink_toggle),
+            _label_row(tr("settings.sound_enabled"), self._sound_toggle),
+            _label_row(tr("settings.sound_choice"), self._sound_choice_combo),
+            _row(QLabel(tr("settings.volume")), self._volume_slider, test_button),
+            _label_row(tr("settings.tooltip"), self._tooltip_toggle),
         ])
         presence_card = _boxed_list([
-            _label_row('Automatisch "Abwesend" nach 5 Min. Inaktivität', self._idle_toggle),
+            _label_row(tr("settings.idle_away"), self._idle_toggle),
         ])
 
-        save_button = QPushButton("Speichern")
+        save_button = QPushButton(tr("settings.save"))
         save_button.setDefault(True)
         save_button.clicked.connect(self._handle_accept)
-        cancel_button = QPushButton("Abbrechen")
+        cancel_button = QPushButton(tr("common.cancel"))
         cancel_button.clicked.connect(self.reject)
 
         button_row = QHBoxLayout()
@@ -176,13 +177,13 @@ class SettingsDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(18)
-        layout.addWidget(_section_label("Start"))
+        layout.addWidget(_section_label(tr("settings.section_start")))
         layout.addWidget(start_card)
-        layout.addWidget(_section_label("Server"))
+        layout.addWidget(_section_label(tr("settings.section_server")))
         layout.addWidget(server_card)
-        layout.addWidget(_section_label("Benachrichtigungen"))
+        layout.addWidget(_section_label(tr("settings.section_notifications")))
         layout.addWidget(notifications_card)
-        layout.addWidget(_section_label("Anwesenheit"))
+        layout.addWidget(_section_label(tr("settings.section_presence")))
         layout.addWidget(presence_card)
         layout.addStretch()
         layout.addLayout(button_row)

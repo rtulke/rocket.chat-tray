@@ -5,6 +5,7 @@ from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QDialog, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
 
 from . import __version__
+from .i18n import tr
 from .resources import icon_path
 
 APP_NAME = "Rocket.Chat Tray"
@@ -15,7 +16,7 @@ REPO_URL = "https://github.com/rtulke/rocket.chat-tray/"
 class AboutDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle(f"Über {APP_NAME}")
+        self.setWindowTitle(tr("about.title", app_name=APP_NAME))
 
         icon_label = QLabel()
         icon_label.setPixmap(
@@ -28,7 +29,7 @@ class AboutDialog(QDialog):
         text_label = QLabel(
             f"<b>{APP_NAME}</b><br>"
             f"Version {__version__}<br><br>"
-            f"Lizenz: {LICENSE_NAME}<br>"
+            f"{tr('about.license_label', license=LICENSE_NAME)}<br>"
             f'<a href="{REPO_URL}">{REPO_URL}</a>'
         )
         text_label.setTextFormat(Qt.TextFormat.RichText)
@@ -40,7 +41,7 @@ class AboutDialog(QDialog):
         content_row.addSpacing(14)
         content_row.addWidget(text_label, stretch=1)
 
-        ok_button = QPushButton("OK")
+        ok_button = QPushButton(tr("common.ok"))
         ok_button.setDefault(True)
         ok_button.clicked.connect(self.accept)
 

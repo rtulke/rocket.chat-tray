@@ -9,6 +9,7 @@ from PySide6.QtWidgets import QInputDialog, QMenu, QSystemTrayIcon
 
 from . import auth
 from .about_dialog import AboutDialog
+from .i18n import tr
 
 logger = logging.getLogger(__name__)
 
@@ -16,11 +17,11 @@ BLINK_INTERVAL_MS = 600
 BADGE_ICON_SIZE = 128
 
 STATUS_LABELS = (
-    ("auto", "Auto"),
-    ("online", "Online"),
-    ("away", "Abwesend"),
-    ("busy", "Beschäftigt"),
-    ("offline", "Offline"),
+    ("auto", tr("tray.status_auto")),
+    ("online", tr("tray.status_online")),
+    ("away", tr("tray.status_away")),
+    ("busy", tr("tray.status_busy")),
+    ("offline", tr("tray.status_offline")),
 )
 
 
@@ -77,21 +78,21 @@ class TrayController(QObject):
         self._blink_timer.setInterval(BLINK_INTERVAL_MS)
         self._blink_timer.timeout.connect(self._toggle_blink)
 
-        self._status_action = QAction("Getrennt", self)
+        self._status_action = QAction(tr("tray.disconnected"), self)
         self._status_action.setEnabled(False)
-        self._open_chat_action = QAction("Chat öffnen", self)
+        self._open_chat_action = QAction(tr("tray.open_chat"), self)
         self._open_chat_action.triggered.connect(lambda: self._defer(self._handle_open_chat))
         status_menu = self._build_status_menu(settings.forced_status)
-        status_message_action = QAction("Statusmeldung…", self)
+        status_message_action = QAction(tr("tray.status_message_action"), self)
         status_message_action.triggered.connect(lambda: self._defer(self._handle_set_status_message))
-        settings_action = QAction("Einstellungen…", self)
+        settings_action = QAction(tr("tray.settings_action"), self)
         settings_action.triggered.connect(on_open_settings)
-        self._reenter_password_action = QAction("Passwort erneut eingeben…", self)
+        self._reenter_password_action = QAction(tr("tray.reenter_password_action"), self)
         self._reenter_password_action.triggered.connect(on_reenter_password)
         self._reenter_password_action.setVisible(False)
-        about_action = QAction("Info…", self)
+        about_action = QAction(tr("tray.about_action"), self)
         about_action.triggered.connect(self._handle_show_about)
-        quit_action = QAction("Beenden", self)
+        quit_action = QAction(tr("tray.quit_action"), self)
         quit_action.triggered.connect(on_quit)
 
         menu = QMenu()
@@ -109,7 +110,7 @@ class TrayController(QObject):
         self._tray.setContextMenu(menu)
         self._menu = menu  # keep a reference alive
 
-        self._update_status_text("Getrennt")
+        self._update_status_text(tr("tray.disconnected"))
         self._tray.show()
 
     @staticmethod
@@ -125,7 +126,7 @@ class TrayController(QObject):
         QTimer.singleShot(0, fn)
 
     def _build_status_menu(self, current_status: str) -> QMenu:
-        menu = QMenu("Status", None)
+        menu = QMenu(tr("tray.status_submenu"), None)
         group = QActionGroup(self)
         group.setExclusive(True)
         for value, label in STATUS_LABELS:
@@ -140,7 +141,7 @@ class TrayController(QObject):
 
     def _handle_set_status_message(self) -> None:
         text, ok = QInputDialog.getText(
-            None, "Statusmeldung", "Eigene Statusmeldung (leer lassen zum Entfernen):",
+            None, tr("tray.status_message_dialog_title"), tr("tray.status_message_dialog_label"),
             text=self._settings.status_message,
         )
         if ok:
@@ -155,7 +156,7 @@ class TrayController(QObject):
         self._state = ConnectionState.CONNECTING
         self._reenter_password_action.setVisible(False)
         self._stop_blink()
-        self._update_status_text("Verbindung wird hergestellt…")
+        self._update_status_text(tr("tray.connecting"))
 
     def set_connected(self, user_id: str) -> None:
         self._state = ConnectionState.CONNECTED
@@ -166,17 +167,17 @@ class TrayController(QObject):
     def set_disconnected(self, reason: str = "") -> None:
         self._state = ConnectionState.DISCONNECTED
         self._stop_blink()
-        self._update_status_text("Getrennt — erneuter Verbindungsversuch…")
+        self._update_status_text(tr("tray.disconnected_retrying"))
 
     def set_reconnect_scheduled(self, seconds: float) -> None:
         if self._state != ConnectionState.AUTH_ERROR:
-            self._update_status_text(f"Getrennt — neuer Versuch in {seconds:.0f}s")
+            self._update_status_text(tr("tray.reconnect_in", seconds=f"{seconds:.0f}"))
 
     def set_auth_error(self, message: str) -> None:
         self._state = ConnectionState.AUTH_ERROR
         self._stop_blink()
         self._reenter_password_action.setVisible(True)
-        self._update_status_text("Anmeldung fehlgeschlagen — Passwort erneut eingeben")
+        self._update_status_text(tr("tray.auth_error"))
 
     def set_presence_status(self, status: str) -> None:
         """Called whenever the *actual*, server-confirmed Rocket.Chat status
@@ -210,9 +211,9 @@ class TrayController(QObject):
         else:
             self._stop_blink()
         if self._unread_rids:
-            self._update_status_text(f"Verbunden — neue Nachrichten in {len(self._unread_rids)} Chat(s)")
+            self._update_status_text(tr("tray.connected_unread", count=len(self._unread_rids)))
         else:
-            self._update_status_text(f"Verbunden als {self._username}")
+            self._update_status_text(tr("tray.connected_as", username=self._username))
 
     def _start_blink(self) -> None:
         if not self._blink_timer.isActive():

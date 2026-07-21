@@ -12,6 +12,7 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 from . import auth, autostart, presence
 from .config import AdminConfig, ConfigError, UserSettings
 from .deeplink import RoomOpener
+from .i18n import tr
 from .idle_watch import IdleWatcher
 from .notifier import NotificationManager
 from .rc_client import RocketChatWorker
@@ -56,7 +57,7 @@ def main() -> int:
     except ConfigError as exc:
         if not settings.server_url_override:
             logger.error("%s", exc)
-            QMessageBox.critical(None, "Rocket.Chat Tray", f"Konfigurationsfehler:\n{exc}")
+            QMessageBox.critical(None, "Rocket.Chat Tray", tr("main.config_error", error=exc))
             return 1
         # No usable /etc config, but the user has already set their own
         # server via the settings dialog on a previous run — use that.

@@ -18,6 +18,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from .i18n import tr
+
 logger = logging.getLogger(__name__)
 
 KEYRING_SERVICE = "rocketchat-tray"
@@ -58,20 +60,20 @@ def rest_login(server_url: str, username: str, password: str, verify_ssl: bool =
             timeout=15,
         )
     except requests.RequestException as exc:
-        raise LoginError(f"Server nicht erreichbar ({server_url}): {exc}") from exc
+        raise LoginError(tr("auth.server_unreachable", url=server_url, error=exc)) from exc
 
     if response.status_code == 401:
         raise LoginError("invalid_credentials")
     if response.status_code != 200:
-        raise LoginError(f"Unerwartete Server-Antwort ({response.status_code})")
+        raise LoginError(tr("auth.unexpected_response", status=response.status_code))
 
     try:
         body = response.json()
     except ValueError as exc:
-        raise LoginError("Unerwartete Server-Antwort (kein JSON)") from exc
+        raise LoginError(tr("auth.unexpected_response_no_json")) from exc
 
     if body.get("status") != "success":
-        raise LoginError(body.get("message", "Anmeldung fehlgeschlagen"))
+        raise LoginError(body.get("message", tr("auth.failed_title")))
 
     data = body["data"]
     return data["authToken"], data["userId"]
@@ -86,7 +88,7 @@ class LoginDialog(QDialog):
         self._server_url = server_url
         self._verify_ssl = verify_ssl
 
-        self.setWindowTitle("Rocket.Chat Tray — Anmelden")
+        self.setWindowTitle(tr("auth.dialog_title"))
         self.setModal(True)
 
         self._username_field = QLineEdit(current_username())
@@ -95,20 +97,20 @@ class LoginDialog(QDialog):
         self._password_field.setEchoMode(QLineEdit.EchoMode.Password)
 
         form = QFormLayout()
-        form.addRow("Benutzername:", self._username_field)
-        form.addRow("Passwort:", self._password_field)
+        form.addRow(tr("auth.username_label"), self._username_field)
+        form.addRow(tr("auth.password_label"), self._password_field)
 
-        self._status_label = QLabel(f"Server: {server_url}")
+        self._status_label = QLabel(tr("auth.server_label", url=server_url))
         self._status_label.setWordWrap(True)
 
         # Plain QPushButtons, not QDialogButtonBox standard buttons: under
         # GNOME's GTK/Adwaita Qt theme, standard Ok/Cancel buttons get
         # auto-assigned icons the user explicitly didn't want on any dialog.
-        login_button = QPushButton("Anmelden")
+        login_button = QPushButton(tr("auth.login_button"))
         login_button.setDefault(True)
         login_button.clicked.connect(self._attempt_login)
         self._password_field.returnPressed.connect(self._attempt_login)
-        cancel_button = QPushButton("Abbrechen")
+        cancel_button = QPushButton(tr("common.cancel"))
         cancel_button.clicked.connect(self.reject)
         self._buttons = (login_button, cancel_button)
 
@@ -138,11 +140,11 @@ class LoginDialog(QDialog):
             for button in self._buttons:
                 button.setEnabled(True)
             message = (
-                "Benutzername oder Passwort falsch."
+                tr("auth.invalid_credentials")
                 if str(exc) == "invalid_credentials"
-                else f"Anmeldung fehlgeschlagen: {exc}"
+                else tr("auth.failed_generic", error=exc)
             )
-            QMessageBox.warning(self, "Anmeldung fehlgeschlagen", message)
+            QMessageBox.warning(self, tr("auth.failed_title"), message)
             self._password_field.selectAll()
             self._password_field.setFocus()
             return
