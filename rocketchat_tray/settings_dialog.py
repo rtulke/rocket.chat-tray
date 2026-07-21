@@ -21,22 +21,22 @@ from .i18n import tr
 from .widgets import ToggleSwitch
 
 # Mimics GNOME's "boxed list" preferences style (see e.g. GNOME Settings, or
-# Remmina's own preferences window): rows grouped into a bordered, rounded
-# card with a thin divider between rows, instead of loose controls directly
-# on the dialog background.
+# Remmina's own preferences window): rows grouped into a single bordered,
+# rounded card per block/section, instead of loose controls directly on the
+# dialog background. Deliberately no border on individual rows -- only the
+# block as a whole is boxed, rows within it are just stacked with spacing.
 # QPalette.ColorRole.Mid resolves to pure white (identical to the dialog
 # background) under this Qt style/theme -- confirmed live, not a guess --
-# making anything drawn with it invisible. palette(placeholder-text) is a
-# real, visible grey here and elsewhere, so borders/dividers/labels use
-# that instead.
+# making anything drawn with it invisible, so the border uses a fixed light
+# grey instead of a palette role (also keeps it subtle rather than
+# dominating the dialog).
 _CARD_STYLE = """
 QFrame#settingsCard {
     background-color: palette(base);
-    border: 1px solid palette(placeholder-text);
+    border: 1px solid #e0e0e0;
     border-radius: 10px;
 }
 """
-_ROW_DIVIDER_STYLE = "QWidget#settingsRow { border-bottom: 1px solid palette(placeholder-text); }"
 _SECTION_LABEL_STYLE = "font-weight: 600; color: palette(placeholder-text);"
 
 ROW_MARGINS = (14, 10, 14, 10)
@@ -67,12 +67,10 @@ def _boxed_list(rows: list[QWidget]) -> QFrame:
     card.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
     card.setStyleSheet(_CARD_STYLE)
     layout = QVBoxLayout(card)
-    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setContentsMargins(0, 4, 0, 4)
     layout.setSpacing(0)
-    for row in rows[:-1]:
-        row.setStyleSheet(_ROW_DIVIDER_STYLE)
+    for row in rows:
         layout.addWidget(row)
-    layout.addWidget(rows[-1])
     return card
 
 
