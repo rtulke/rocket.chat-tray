@@ -52,18 +52,22 @@ class ToggleSwitch(QAbstractButton):
         painter.setPen(Qt.PenStyle.NoPen)
 
         track_rect = QRectF(0, (self.height() - self._TRACK_H) / 2, self._TRACK_W, self._TRACK_H)
-        # Uses the system's actual accent colour (palette Highlight) rather
-        # than a hardcoded green, so the switch matches whatever GTK/GNOME
-        # accent the user has configured instead of clashing with it.
+        # ON uses the system's actual accent colour (palette Highlight) so
+        # the switch matches whatever GTK/GNOME accent the user has
+        # configured. OFF/disabled deliberately do NOT use palette roles:
+        # QPalette.ColorRole.Mid resolves to pure white (#ffffff, identical
+        # to the dialog background) under this Qt style, making an
+        # unchecked switch completely invisible -- confirmed live, not a
+        # guess. Fixed neutral greys sidestep that regardless of theme.
         if not self.isEnabled():
-            track_color = self.palette().color(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Mid)
+            track_color = QColor("#d0d0d0")
         elif self.isChecked():
             track_color = self.palette().color(QPalette.ColorRole.Highlight)
         else:
-            track_color = self.palette().color(QPalette.ColorRole.Mid)
+            track_color = QColor("#9e9e9e")
         painter.setBrush(track_color)
         painter.drawRoundedRect(track_rect, self._TRACK_H / 2, self._TRACK_H / 2)
 
         thumb_d = self._TRACK_H - 2 * self._MARGIN
-        painter.setBrush(self.palette().color(QPalette.ColorRole.Base))
+        painter.setBrush(QColor("#ffffff"))
         painter.drawEllipse(QRectF(self._offset, track_rect.top() + self._MARGIN, thumb_d, thumb_d))

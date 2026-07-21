@@ -9,11 +9,12 @@ import requests
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog,
-    QDialogButtonBox,
     QFormLayout,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QMessageBox,
+    QPushButton,
     QVBoxLayout,
 )
 
@@ -100,16 +101,26 @@ class LoginDialog(QDialog):
         self._status_label = QLabel(f"Server: {server_url}")
         self._status_label.setWordWrap(True)
 
-        self._buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        self._buttons.accepted.connect(self._attempt_login)
-        self._buttons.rejected.connect(self.reject)
+        # Plain QPushButtons, not QDialogButtonBox standard buttons: under
+        # GNOME's GTK/Adwaita Qt theme, standard Ok/Cancel buttons get
+        # auto-assigned icons the user explicitly didn't want on any dialog.
+        login_button = QPushButton("Anmelden")
+        login_button.setDefault(True)
+        login_button.clicked.connect(self._attempt_login)
+        self._password_field.returnPressed.connect(self._attempt_login)
+        cancel_button = QPushButton("Abbrechen")
+        cancel_button.clicked.connect(self.reject)
+        self._buttons = (login_button, cancel_button)
+
+        button_row = QHBoxLayout()
+        button_row.addStretch()
+        button_row.addWidget(cancel_button)
+        button_row.addWidget(login_button)
 
         layout = QVBoxLayout(self)
         layout.addWidget(self._status_label)
         layout.addLayout(form)
-        layout.addWidget(self._buttons)
+        layout.addLayout(button_row)
 
         self._password_field.setFocus()
 
@@ -117,13 +128,15 @@ class LoginDialog(QDialog):
         password = self._password_field.text()
         if not password:
             return
-        self._buttons.setEnabled(False)
+        for button in self._buttons:
+            button.setEnabled(False)
         self.setCursor(Qt.CursorShape.WaitCursor)
         try:
             rest_login(self._server_url, current_username(), password, self._verify_ssl)
         except LoginError as exc:
             self.unsetCursor()
-            self._buttons.setEnabled(True)
+            for button in self._buttons:
+                button.setEnabled(True)
             message = (
                 "Benutzername oder Passwort falsch."
                 if str(exc) == "invalid_credentials"

@@ -23,15 +23,20 @@ from .widgets import ToggleSwitch
 # Remmina's own preferences window): rows grouped into a bordered, rounded
 # card with a thin divider between rows, instead of loose controls directly
 # on the dialog background.
+# QPalette.ColorRole.Mid resolves to pure white (identical to the dialog
+# background) under this Qt style/theme -- confirmed live, not a guess --
+# making anything drawn with it invisible. palette(placeholder-text) is a
+# real, visible grey here and elsewhere, so borders/dividers/labels use
+# that instead.
 _CARD_STYLE = """
 QFrame#settingsCard {
     background-color: palette(base);
-    border: 1px solid palette(mid);
+    border: 1px solid palette(placeholder-text);
     border-radius: 10px;
 }
 """
-_ROW_DIVIDER_STYLE = "QWidget#settingsRow { border-bottom: 1px solid palette(mid); }"
-_SECTION_LABEL_STYLE = "font-weight: 600; color: palette(mid);"
+_ROW_DIVIDER_STYLE = "QWidget#settingsRow { border-bottom: 1px solid palette(placeholder-text); }"
+_SECTION_LABEL_STYLE = "font-weight: 600; color: palette(placeholder-text);"
 
 ROW_MARGINS = (14, 10, 14, 10)
 
