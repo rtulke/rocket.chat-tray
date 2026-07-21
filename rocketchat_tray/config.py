@@ -27,7 +27,7 @@ DEFAULT_SETTINGS = {
     },
     "presence": {
         "forced_status": "auto",
-        "idle_detection_enabled": False,
+        "idle_detection_enabled": True,
         "status_message": "",
     },
     "server": {
