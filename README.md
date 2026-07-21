@@ -1,6 +1,8 @@
 # Rocket.Chat Tray
 
-A GNOME 3 system-tray client for [Rocket.Chat](https://www.rocket.chat/). Shows your live Rocket.Chat presence (online/away/busy/offline) as a coloured tray icon, notifies you on new messages, and lets you set your status and a custom status message without opening a browser tab.
+We decided against using the Rocket.Chat Electron desktop client [Rocket.Chat](https://www.rocket.chat/). because it wasn’t very stable. However, we still wanted desktop notifications and the ability to manage our status directly from GNOME 3.
+
+This GNOME 3 system tray client displays your live Rocket.Chat presence—online, away, busy, or offline—as a colour-coded tray icon. It stays synchronised in real time, including when your status is changed through another client, such as the web or mobile app.
 
 - Colour-coded tray icon that mirrors your actual Rocket.Chat presence, kept in sync in real time — including status changes made elsewhere (the web client, mobile)
 - Desktop notifications on new messages, with a click-to-open-that-chat action
