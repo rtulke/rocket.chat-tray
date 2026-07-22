@@ -111,7 +111,7 @@ jobs:
       - name: Smoke-test the installed package
         run: |
           test -x /usr/bin/rocketchat-tray
-          test -f /etc/rocketchat-tray/config.ini
+          test -f /etc/rocketchat-tray/config.conf
           test -f /etc/xdg/autostart/rocketchat-tray.desktop
           /opt/rocketchat-tray/venv/bin/python3 -c "import rocketchat_tray; print('version:', rocketchat_tray.__version__)"
           /opt/rocketchat-tray/venv/bin/python3 -c "from PySide6.QtWidgets import QApplication"
