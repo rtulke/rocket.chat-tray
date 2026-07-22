@@ -139,7 +139,10 @@ def main() -> int:
     def set_status_message(message: str) -> None:
         settings.status_message = message
         settings.save()
-        presence_coordinator.apply()
+        # force=True: the status itself may be unchanged, but the message
+        # text always needs to reach the server, and apply() otherwise skips
+        # pushing when the resolved status already matches the last-known one.
+        presence_coordinator.apply(force=True)
 
     def quit_app() -> None:
         worker.stop()
@@ -170,13 +173,14 @@ def main() -> int:
     # of running GUI code on the worker thread.
     worker.connecting.connect(tray.set_connecting)
     worker.connected.connect(tray.set_connected)
-    worker.connected.connect(presence_coordinator.apply)
+    worker.connected.connect(presence_coordinator.handle_connected)
     worker.disconnected.connect(tray.set_disconnected)
     worker.reconnect_scheduled.connect(tray.set_reconnect_scheduled)
     worker.auth_failed.connect(tray.set_auth_error)
     worker.notification_received.connect(tray.notify_unread)
     worker.notification_received.connect(notifier.notify_message)
     worker.presence_status_changed.connect(tray.set_presence_status)
+    worker.presence_status_changed.connect(presence_coordinator.note_external_status)
     presence_coordinator.status_applied.connect(tray.set_presence_status)
 
     idle_watcher.became_idle.connect(presence_coordinator.apply)

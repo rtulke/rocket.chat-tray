@@ -52,6 +52,18 @@ class PresenceCoordinator(QObject):
     connected directly to RocketChatWorker's cross-thread `connected` signal
     and still get Qt's automatic thread-safe queued dispatch.
 
+    Tracks the last status actually confirmed on the server (our own pushes,
+    plus the realtime stream-notify-logged/user-status echo of changes made
+    anywhere else -- web client, mobile, ...) and skips re-pushing when the
+    locally resolved status already matches it. Without this, apply() being
+    wired to RocketChatWorker's `connected` signal meant *every* reconnect
+    (network blips, the DDP idle-timeout cycling every ~45s) unconditionally
+    re-pushed the locally computed status, silently clobbering a status
+    someone had just set from elsewhere in the meantime. Explicit local
+    intent (the tray's status menu, the status-message dialog) still always
+    pushes via apply(force=True), since a message-only change needs to reach
+    the server even when the status itself didn't change.
+
     Note: this used to go through requests on a background thread, was
     briefly switched to QNetworkAccessManager to rule out Python-thread/GIL
     involvement, but that introduced a real "QIODevice::read (QSslSocket):
@@ -79,6 +91,8 @@ class PresenceCoordinator(QObject):
         self._settings = settings
         self._worker = worker
         self._idle_watcher = idle_watcher
+        self._last_known_status: str | None = None
+        self._connected_once = False
 
     def resolve_status(self) -> str:
         if self._settings.forced_status != "auto":
@@ -87,10 +101,28 @@ class PresenceCoordinator(QObject):
             return "away"
         return "online"
 
-    def apply(self, *_args) -> None:
+    def note_external_status(self, status: str) -> None:
+        """Record the server-confirmed status from the realtime echo, so a
+        later apply() can tell whether it actually needs to push anything."""
+        self._last_known_status = status
+
+    def handle_connected(self, *_args) -> None:
+        """Wired to RocketChatWorker.connected. Only asserts the locally
+        configured status on the *first* connection of this run -- later
+        reconnects leave whatever's currently set on the server alone (the
+        icon still tracks it live via note_external_status/set_presence_status)
+        instead of re-pushing on every reconnect."""
+        if self._connected_once:
+            return
+        self._connected_once = True
+        self.apply()
+
+    def apply(self, *_args, force: bool = False) -> None:
         if not (self._worker.current_auth_token and self._worker.current_user_id):
             return
         status = self.resolve_status()
+        if not force and status == self._last_known_status:
+            return
         server_url = self._admin_config.server_url
         auth_token = self._worker.current_auth_token
         user_id = self._worker.current_user_id
@@ -99,6 +131,7 @@ class PresenceCoordinator(QObject):
 
         def push() -> None:
             if set_status(server_url, auth_token, user_id, status, message, verify_ssl):
+                self._last_known_status = status
                 self.status_applied.emit(status)
 
         threading.Thread(target=push, daemon=True).start()
