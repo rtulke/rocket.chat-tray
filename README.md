@@ -40,7 +40,7 @@ sudo apt install ./rocketchat-tray_<version>_<distro>_amd64.deb
 After installing, set the server URL once for all users:
 
 ```bash
-sudo nano /etc/rocketchat-tray/config.ini
+sudo nano /etc/rocketchat-tray/config.conf
 ```
 
 Then either log out/in (autostart picks it up) or run `rocketchat-tray` directly.
@@ -50,7 +50,7 @@ Then either log out/in (autostart picks it up) or run `rocketchat-tray` directly
 **Server URL** — resolved in this order:
 
 1. A per-user override set from the app's own Settings dialog (⚙ → Server), stored in `~/.config/rocketchat-tray/settings.json` under `server.url_override`. Once set, this always wins.
-2. The fleet-wide default in `/etc/rocketchat-tray/config.ini` (`[server] url = ...`), managed by whoever deployed the package.
+2. The fleet-wide default in `/etc/rocketchat-tray/config.conf` (`[server] url = ...`), managed by whoever deployed the package.
 
 Changing the URL from Settings takes effect immediately — no restart needed — and prompts you to log in to the new server right away.
 
@@ -68,8 +68,8 @@ python3 -m venv .venv
 
 # Admin config is required even for local runs:
 sudo mkdir -p /etc/rocketchat-tray
-sudo cp packaging/config.ini.example /etc/rocketchat-tray/config.ini
-sudo nano /etc/rocketchat-tray/config.ini   # set server_url to a real server
+sudo cp packaging/config.conf.example /etc/rocketchat-tray/config.conf
+sudo nano /etc/rocketchat-tray/config.conf   # set server_url to a real server
 
 .venv/bin/rocketchat-tray
 ```

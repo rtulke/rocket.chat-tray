@@ -234,13 +234,20 @@ class RocketChatWorker(QThread):
         )
 
     def _handle_user_status_event(self, msg: dict, own_user_id: str) -> None:
+        # fields.args is a *list containing one* [user_id, username, status,
+        # statusText] tuple, not the tuple itself -- confirmed via a live
+        # capture against the real server (see project memory). Unwrap it
+        # before reading fields.
         fields = msg.get("fields", {})
         if fields.get("eventName") != "user-status":
             return
         args = fields.get("args") or []
-        if len(args) < 3 or args[0] != own_user_id:
+        if not args:
             return
-        status = STATUS_CODE_MAP.get(args[2])
+        event = args[0]
+        if len(event) < 3 or event[0] != own_user_id:
+            return
+        status = STATUS_CODE_MAP.get(event[2])
         if status:
             self.presence_status_changed.emit(status)
 

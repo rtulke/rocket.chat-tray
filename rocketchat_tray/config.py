@@ -12,7 +12,13 @@ from .sounds import DEFAULT_CHOICE as DEFAULT_SOUND_CHOICE
 
 logger = logging.getLogger(__name__)
 
-ADMIN_CONFIG_PATH = Path("/etc/rocketchat-tray/config.ini")
+ADMIN_CONFIG_PATH = Path("/etc/rocketchat-tray/config.conf")
+# Renamed from config.ini in 0.0.40 (.conf is the more conventional extension
+# for a Linux /etc config file); the .deb's maintainer scripts migrate an
+# existing installation's file via dpkg-maintscript-helper (see
+# packaging/preinstall.sh), but this fallback also covers configs deployed
+# by other means (config management, manual copies, ...).
+LEGACY_ADMIN_CONFIG_PATH = Path("/etc/rocketchat-tray/config.ini")
 USER_SETTINGS_PATH = Path.home() / ".config" / "rocketchat-tray" / "settings.json"
 
 STATUS_OPTIONS = ("auto", "online", "away", "busy", "offline")
@@ -54,6 +60,12 @@ class AdminConfig:
 
     @classmethod
     def load(cls, path: Path = ADMIN_CONFIG_PATH) -> "AdminConfig":
+        if not path.exists() and LEGACY_ADMIN_CONFIG_PATH.exists():
+            logger.warning(
+                "%s nicht gefunden, verwende veraltetes %s -- bitte auf .conf umbenennen",
+                path, LEGACY_ADMIN_CONFIG_PATH,
+            )
+            path = LEGACY_ADMIN_CONFIG_PATH
         if not path.exists():
             raise ConfigError(f"Admin-Konfiguration nicht gefunden: {path}")
         parser = configparser.ConfigParser()
@@ -163,7 +175,7 @@ class UserSettings:
     @property
     def server_url_override(self) -> str:
         """Empty string means "no override, use the admin-provisioned
-        server_url from /etc/rocketchat-tray/config.ini"."""
+        server_url from /etc/rocketchat-tray/config.conf"."""
         return self._data["server"]["url_override"]
 
     @server_url_override.setter
