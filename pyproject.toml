@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rocketchat-tray"
-version = "0.0.38"
+version = "0.0.39"
 description = "GNOME system-tray client for Rocket.Chat notifications"
 license = "MIT"
 authors = [{ name = "Robert Tulke", email = "rt@debian.sh" }]
