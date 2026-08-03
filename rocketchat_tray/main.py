@@ -103,7 +103,7 @@ def main() -> int:
     def open_room(rid: str | None) -> None:
         room_opener.open_room(
             admin_config.server_url, worker.current_auth_token, worker.current_user_id,
-            rid, admin_config.verify_ssl,
+            rid, admin_config.verify_ssl, app_mode=settings.app_mode_enabled,
         )
 
     def reenter_password() -> None:

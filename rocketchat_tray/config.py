@@ -41,6 +41,9 @@ DEFAULT_SETTINGS = {
         "url_override": "",
         "verify_ssl_override": True,
     },
+    "browser": {
+        "app_mode_enabled": False,
+    },
 }
 
 
@@ -97,6 +100,7 @@ class UserSettings:
                 data["notifications"].update(loaded.get("notifications", {}))
                 data["presence"].update(loaded.get("presence", {}))
                 data["server"].update(loaded.get("server", {}))
+                data["browser"].update(loaded.get("browser", {}))
             except (json.JSONDecodeError, OSError) as exc:
                 logger.warning("Konnte %s nicht lesen, verwende Standardwerte: %s", path, exc)
         return cls(data, path=path)
@@ -204,3 +208,16 @@ class UserSettings:
     @verify_ssl_override.setter
     def verify_ssl_override(self, value: bool) -> None:
         self._data["server"]["verify_ssl_override"] = value
+
+    @property
+    def app_mode_enabled(self) -> bool:
+        """Open rooms in a dedicated Chromium --app window (reused/focused
+        across clicks) instead of a new tab in the default browser. Only
+        has any effect if a Chromium-family browser is actually installed
+        -- see deeplink.find_chromium_browser(); silently falls back to the
+        default-browser behaviour otherwise (e.g. Firefox-only systems)."""
+        return self._data["browser"]["app_mode_enabled"]
+
+    @app_mode_enabled.setter
+    def app_mode_enabled(self, value: bool) -> None:
+        self._data["browser"]["app_mode_enabled"] = value

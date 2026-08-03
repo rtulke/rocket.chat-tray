@@ -1,13 +1,46 @@
 from __future__ import annotations
 
 import logging
+import shutil
 import threading
 
 import requests
-from PySide6.QtCore import QObject, QUrl, Signal
+from PySide6.QtCore import QObject, QProcess, QUrl, Signal
 from PySide6.QtGui import QDesktopServices
 
 logger = logging.getLogger(__name__)
+
+# Checked in this order via shutil.which(). xdg-open (the QDesktopServices
+# fallback) has no concept of "reuse an existing tab for this URL" -- that's
+# not part of the freedesktop URL-open protocol at all, regardless of which
+# browser ends up handling it. Chromium-family browsers' own --app mode is
+# the one thing that reliably provides that: launching (or re-launching)
+# `<browser> --app=<url>` opens a dedicated, tab-less window for that
+# origin, and re-invoking it while a window for the same origin is already
+# open focuses that window instead of creating a new one -- Chrome/Chromium
+# key that reuse off the URL's origin, not the exact path, so navigating to
+# a different room (a different path under the same server origin) still
+# reuses and re-navigates the same window rather than opening another one.
+# No equivalent exists in stable Firefox (its Site-Specific-Browser/PWA
+# support is experimental/Nightly-only), so this is a no-op there --
+# open_url() falls back to the normal xdg-open behaviour whenever no
+# Chromium-family binary is found on PATH.
+_CHROMIUM_BROWSER_CANDIDATES = (
+    "google-chrome",
+    "google-chrome-stable",
+    "chromium",
+    "chromium-browser",
+    "brave-browser",
+    "microsoft-edge",
+)
+
+
+def find_chromium_browser() -> str | None:
+    for name in _CHROMIUM_BROWSER_CANDIDATES:
+        path = shutil.which(name)
+        if path:
+            return path
+    return None
 
 
 def resolve_and_build_url(
@@ -40,7 +73,19 @@ def resolve_and_build_url(
     return f"{server_url}/home"
 
 
-def open_url(url: str) -> None:
+def open_url(url: str, app_mode: bool = False) -> None:
+    if app_mode:
+        browser = find_chromium_browser()
+        if browser:
+            # Detached: its lifetime must not be tied to ours (QProcess's
+            # normal, non-detached mode kills the child if the parent
+            # QProcess object is destroyed/GC'd, which would happen almost
+            # immediately here since we don't hold a reference).
+            if QProcess.startDetached(browser, [f"--app={url}"]):
+                return
+            logger.warning("Konnte %s nicht im App-Modus starten, verwende Standard-Browser", browser)
+        else:
+            logger.info("Kein Chromium-basierter Browser gefunden, verwende Standard-Browser")
     QDesktopServices.openUrl(QUrl(url))
 
 
@@ -55,25 +100,25 @@ class RoomOpener(QObject):
     connection and the actual QDesktopServices.openUrl() call still happens
     on the GUI thread."""
 
-    resolved = Signal(str)
+    resolved = Signal(str, bool)  # url, app_mode
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.resolved.connect(self._open)
 
-    def _open(self, url: str) -> None:
-        open_url(url)
+    def _open(self, url: str, app_mode: bool) -> None:
+        open_url(url, app_mode=app_mode)
 
     def open_room(
         self, server_url: str, auth_token: str | None, user_id: str | None, rid: str | None,
-        verify_ssl: bool = True,
+        verify_ssl: bool = True, app_mode: bool = False,
     ) -> None:
         if not (rid and auth_token and user_id):
-            open_url(f"{server_url}/home")
+            open_url(f"{server_url}/home", app_mode=app_mode)
             return
 
         def worker() -> None:
             url = resolve_and_build_url(server_url, auth_token, user_id, rid, verify_ssl)
-            self.resolved.emit(url)
+            self.resolved.emit(url, app_mode)
 
         threading.Thread(target=worker, daemon=True).start()
