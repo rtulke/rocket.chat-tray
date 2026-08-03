@@ -33,6 +33,16 @@ def main() -> int:
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
     app.setApplicationName("Rocket.Chat Tray")
+    # GNOME (particularly on Wayland) resolves a window's dock/taskbar/
+    # alt-tab icon by matching its Wayland app_id (or X11 WM_CLASS) against
+    # an installed .desktop entry's Icon=. Qt sets neither by default, so
+    # every window (Settings/Login/About) fell back to a generic placeholder
+    # icon instead of ours. setDesktopFileName ties us to
+    # packaging/launcher.desktop for that lookup; setWindowIcon is the
+    # direct Qt-level fallback so windows still get the right icon even
+    # where the desktop-file match fails (e.g. a plain X11 session).
+    app.setDesktopFileName("rocketchat-tray")
+    app.setWindowIcon(QIcon(str(icon_path("online"))))
 
     # Qt's C++ event loop blocks Python from checking for pending signals,
     # so a plain Ctrl+C in a terminal can take dozens of presses (or never)
