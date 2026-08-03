@@ -28,7 +28,8 @@ def _cdp_get(path: str) -> object | None:
         response = requests.get(f"http://127.0.0.1:{DEBUG_PORT}{path}", timeout=_HTTP_TIMEOUT)
         response.raise_for_status()
         return response.json()
-    except (requests.RequestException, ValueError):
+    except (requests.RequestException, ValueError) as exc:
+        logger.debug("CDP GET %s fehlgeschlagen: %s", path, exc)
         return None
 
 
@@ -42,38 +43,63 @@ def _cdp_mutate(path: str) -> bool:
         response = requests.put(f"http://127.0.0.1:{DEBUG_PORT}{path}", timeout=_HTTP_TIMEOUT)
         if response.status_code == 405:
             response = requests.get(f"http://127.0.0.1:{DEBUG_PORT}{path}", timeout=_HTTP_TIMEOUT)
+        if not response.ok:
+            logger.info("CDP-Aufruf %s -> HTTP %s: %s", path, response.status_code, response.text[:200])
         return response.ok
-    except requests.RequestException:
+    except requests.RequestException as exc:
+        logger.info("CDP-Aufruf %s fehlgeschlagen: %s", path, exc)
         return False
 
 
 def _find_matching_target(origin: str) -> dict | None:
     targets = _cdp_get("/json/list")
     if not targets:
+        logger.info("CDP /json/list lieferte keine Ziele (Browser laeuft, aber keine Tabs/Fenster gemeldet)")
         return None
+    logger.info(
+        "CDP /json/list: %s",
+        [{"type": t.get("type"), "url": t.get("url")} for t in targets],
+    )
     pages = [t for t in targets if t.get("type") == "page"]
     for target in pages:
         if target.get("url", "").startswith(origin):
+            logger.info("Passendes Ziel gefunden (Origin-Treffer): %s", target.get("url"))
             return target
     # Our dedicated profile only ever hosts one site, so any leftover page
     # target (e.g. sitting on a transient about:blank) is still the right
     # window to reuse rather than spawning a second one.
-    return pages[0] if pages else None
+    if pages:
+        logger.info("Kein Origin-Treffer, verwende erstes 'page'-Ziel: %s", pages[0].get("url"))
+        return pages[0]
+    logger.info("Keine Ziele vom Typ 'page' in der Liste (vorhandene Typen: %s)", {t.get("type") for t in targets})
+    return None
 
 
 def _navigate_target(target: dict, url: str) -> bool:
     ws_url = target.get("webSocketDebuggerUrl")
     if not ws_url:
+        logger.info("Ziel %s hat keine webSocketDebuggerUrl, kann nicht navigieren", target.get("id"))
         return False
     try:
-        ws = websocket.create_connection(ws_url, timeout=_HTTP_TIMEOUT)
+        # Chrome 111+ rejects incoming CDP WebSocket connections that carry
+        # a browser-style Origin header (a DNS-rebinding hardening measure)
+        # unless it's been explicitly allow-listed via a launch flag --
+        # confirmed live: every navigate attempt got a 403 and silently
+        # fell back to opening a new tab instead of reusing the window.
+        # suppress_origin skips sending that header entirely, which Chrome
+        # accepts (this is how real CDP tooling like Puppeteer/Selenium
+        # connects too) -- simpler and less invasive than loosening
+        # Chrome's origin allow-list via --remote-allow-origins.
+        ws = websocket.create_connection(ws_url, timeout=_HTTP_TIMEOUT, suppress_origin=True)
         try:
             ws.send(json.dumps({"id": 1, "method": "Page.navigate", "params": {"url": url}}))
-            ws.recv()
+            reply = ws.recv()
+            logger.info("Page.navigate Antwort: %s", reply)
         finally:
             ws.close()
         return True
-    except (OSError, ValueError, websocket.WebSocketException):
+    except (OSError, ValueError, websocket.WebSocketException) as exc:
+        logger.info("Page.navigate ueber %s fehlgeschlagen: %s", ws_url, exc)
         return False
 
 
@@ -84,6 +110,7 @@ def _launch_new_instance(browser_path: str, url: str) -> bool:
         f"--remote-debugging-port={DEBUG_PORT}",
         f"--user-data-dir={PROFILE_DIR}",
     ]
+    logger.info("Starte neue Browser-Instanz: %s %s", browser_path, " ".join(args))
     return bool(QProcess.startDetached(browser_path, args))
 
 
@@ -100,13 +127,17 @@ def open_in_app_window(browser_path: str, url: str) -> bool:
     origin = f"{urlsplit(url).scheme}://{urlsplit(url).netloc}"
 
     if _cdp_get("/json/version") is not None:
+        logger.info("Bestehende Browser-Instanz auf Port %s gefunden, versuche Fenster wiederzuverwenden", DEBUG_PORT)
         target = _find_matching_target(origin)
         if target and _navigate_target(target, url) and _cdp_mutate(f"/json/activate/{target['id']}"):
+            logger.info("Fenster erfolgreich wiederverwendet und navigiert")
             return True
         # Instance is running but reuse failed for some reason (window
         # closed between the liveness check and here, CDP hiccup, no page
         # target yet) -- still avoid spawning a second *process*, just open
         # a fresh tab in the one that's already running.
+        logger.info("Wiederverwendung fehlgeschlagen, oeffne stattdessen neuen Tab in bestehender Instanz")
         return _cdp_mutate(f"/json/new?{url}")
 
+    logger.info("Keine laufende Browser-Instanz auf Port %s gefunden", DEBUG_PORT)
     return _launch_new_instance(browser_path, url)
