@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 _CHROMIUM_BROWSER_CANDIDATES = (
     "google-chrome",
     "google-chrome-stable",
+    "chrome",
     "chromium",
     "chromium-browser",
     "brave-browser",
