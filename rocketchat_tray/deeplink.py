@@ -5,25 +5,23 @@ import shutil
 import threading
 
 import requests
-from PySide6.QtCore import QObject, QProcess, QUrl, Signal
+from PySide6.QtCore import QObject, QUrl, Signal
 from PySide6.QtGui import QDesktopServices
+
+from . import browser_app
 
 logger = logging.getLogger(__name__)
 
 # Checked in this order via shutil.which(). xdg-open (the QDesktopServices
 # fallback) has no concept of "reuse an existing tab for this URL" -- that's
 # not part of the freedesktop URL-open protocol at all, regardless of which
-# browser ends up handling it. Chromium-family browsers' own --app mode is
-# the one thing that reliably provides that: launching (or re-launching)
-# `<browser> --app=<url>` opens a dedicated, tab-less window for that
-# origin, and re-invoking it while a window for the same origin is already
-# open focuses that window instead of creating a new one -- Chrome/Chromium
-# key that reuse off the URL's origin, not the exact path, so navigating to
-# a different room (a different path under the same server origin) still
-# reuses and re-navigates the same window rather than opening another one.
+# browser ends up handling it. Chromium-family browsers are the one thing
+# that can provide that, via browser_app.open_in_app_window() (see that
+# module for how -- plain `--app=URL` alone does NOT auto-reuse a window,
+# confirmed live; only installed PWAs get that treatment from Chrome).
 # No equivalent exists in stable Firefox (its Site-Specific-Browser/PWA
 # support is experimental/Nightly-only), so this is a no-op there --
-# open_url() falls back to the normal xdg-open behaviour whenever no
+# RoomOpener falls back to the normal xdg-open behaviour whenever no
 # Chromium-family binary is found on PATH.
 _CHROMIUM_BROWSER_CANDIDATES = (
     "google-chrome",
@@ -74,52 +72,53 @@ def resolve_and_build_url(
     return f"{server_url}/home"
 
 
-def open_url(url: str, app_mode: bool = False) -> None:
-    if app_mode:
-        browser = find_chromium_browser()
-        if browser:
-            # Detached: its lifetime must not be tied to ours (QProcess's
-            # normal, non-detached mode kills the child if the parent
-            # QProcess object is destroyed/GC'd, which would happen almost
-            # immediately here since we don't hold a reference).
-            if QProcess.startDetached(browser, [f"--app={url}"]):
-                return
-            logger.warning("Konnte %s nicht im App-Modus starten, verwende Standard-Browser", browser)
-        else:
-            logger.info("Kein Chromium-basierter Browser gefunden, verwende Standard-Browser")
-    QDesktopServices.openUrl(QUrl(url))
+def _try_app_mode(url: str) -> bool:
+    """Attempts to open `url` via a dedicated, reused Chromium app window.
+    Does blocking network I/O (CDP HTTP/WebSocket calls, each up to a
+    couple of seconds) -- callers must run this off the GUI thread. Returns
+    True if handled, False if the caller should fall back to
+    QDesktopServices.openUrl() instead (no Chromium-family browser found,
+    or the attempt itself failed)."""
+    browser = find_chromium_browser()
+    if not browser:
+        logger.info("Kein Chromium-basierter Browser gefunden, verwende Standard-Browser")
+        return False
+    if browser_app.open_in_app_window(browser, url):
+        return True
+    logger.warning("Konnte %s nicht im App-Modus oeffnen, verwende Standard-Browser", browser)
+    return False
 
 
 class RoomOpener(QObject):
     """Resolves a room id to a URL and opens it, without blocking the GUI
-    thread: rooms.info is a blocking REST call, and running it directly on
-    the thread that's about to handle a menu click/notification click would
-    freeze the event loop for the round-trip (GNOME shows that to the user
-    as a spinning busy cursor). The resolution runs on a throwaway daemon
-    thread; a QObject (not a plain function) is what it reports back
-    through, so Qt delivers `resolved` via its automatic thread-safe queued
-    connection and the actual QDesktopServices.openUrl() call still happens
-    on the GUI thread."""
+    thread: both rooms.info (a blocking REST call) and, when app_mode is
+    on, _try_app_mode() (blocking CDP HTTP/WebSocket calls against the
+    browser) run on a throwaway daemon thread. A QObject (not a plain
+    function) is what reports back through, so Qt delivers `resolved` via
+    its automatic thread-safe queued connection and the actual
+    QDesktopServices.openUrl() fallback call still happens on the GUI
+    thread, as its docs require."""
 
-    resolved = Signal(str, bool)  # url, app_mode
+    resolved = Signal(str)  # url -- only emitted when the GUI thread still needs to open it itself
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.resolved.connect(self._open)
 
-    def _open(self, url: str, app_mode: bool) -> None:
-        open_url(url, app_mode=app_mode)
+    def _open(self, url: str) -> None:
+        QDesktopServices.openUrl(QUrl(url))
 
     def open_room(
         self, server_url: str, auth_token: str | None, user_id: str | None, rid: str | None,
         verify_ssl: bool = True, app_mode: bool = False,
     ) -> None:
-        if not (rid and auth_token and user_id):
-            open_url(f"{server_url}/home", app_mode=app_mode)
-            return
-
         def worker() -> None:
-            url = resolve_and_build_url(server_url, auth_token, user_id, rid, verify_ssl)
-            self.resolved.emit(url, app_mode)
+            if rid and auth_token and user_id:
+                url = resolve_and_build_url(server_url, auth_token, user_id, rid, verify_ssl)
+            else:
+                url = f"{server_url}/home"
+            if app_mode and _try_app_mode(url):
+                return
+            self.resolved.emit(url)
 
         threading.Thread(target=worker, daemon=True).start()
