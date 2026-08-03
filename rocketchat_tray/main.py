@@ -5,7 +5,7 @@ import signal
 import sys
 
 import urllib3
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QProcess, QTimer
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication, QMessageBox
 
@@ -162,6 +162,22 @@ def main() -> int:
         worker.stop()
         worker.wait(3000)
         app.quit()
+
+    def handle_restart_requested() -> None:
+        # packaging/postinstall.sh sends this after a .deb upgrade so the
+        # already-running (now outdated) instance relaunches itself instead
+        # of the user having to notice a stale tray icon and do it by hand.
+        # Only wired up from here on, i.e. once the app is past the initial
+        # config/login checks -- a restart request arriving during that
+        # brief early window (first run, or right after "Anmeldung
+        # zuruecksetzen") is silently missed, same as before this feature
+        # existed, rather than risk interacting with LoginDialog's own
+        # nested event loop.
+        logger.info("Neustart angefordert (Paket-Upgrade), starte neu...")
+        QProcess.startDetached(sys.executable, ["-m", "rocketchat_tray.main"])
+        quit_app()
+
+    guard.restart_requested.connect(handle_restart_requested)
 
     tray = TrayController(
         icons,
