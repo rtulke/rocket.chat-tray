@@ -39,7 +39,7 @@ jobs:
           DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
             git python3 python3-venv python3-pip curl ca-certificates
 
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Determine package version
         id: version
@@ -68,7 +68,7 @@ jobs:
           nfpm package -f packaging/nfpm.yaml -p deb \
             -t "rocketchat-tray_${PKG_VERSION}_${{ matrix.id }}_amd64.deb"
 
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         with:
           name: deb-${{ matrix.id }}
           path: rocketchat-tray_*.deb
@@ -91,7 +91,7 @@ jobs:
     runs-on: ubuntu-latest
     container: ${{ matrix.image }}
     steps:
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v8
         with:
           name: deb-${{ matrix.id }}
 
@@ -123,7 +123,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
           merge-multiple: true
