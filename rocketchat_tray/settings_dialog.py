@@ -157,8 +157,37 @@ class SettingsDialog(QDialog):
             _row(QLabel(tr("settings.volume")), self._volume_slider, test_button),
             _label_row(tr("settings.tooltip"), self._tooltip_toggle),
         ])
+        # Internal range is 1..12 "5-minute steps" rather than raw minutes,
+        # so every reachable position is already a valid, snapped value
+        # (5, 10, 15, ... 60) -- simpler and more robust than letting the
+        # slider produce arbitrary minute values and rounding them after
+        # the fact.
+        self._idle_minutes_slider = QSlider(Qt.Orientation.Horizontal)
+        self._idle_minutes_slider.setRange(1, 12)
+        self._idle_minutes_slider.setValue(round(settings.idle_threshold_minutes / 5))
+        self._idle_minutes_slider.setMinimumWidth(140)
+
+        idle_minutes_value_label = QLabel()
+
+        def _update_idle_minutes_label(step: int) -> None:
+            idle_minutes_value_label.setText(tr("settings.idle_minutes_value", minutes=step * 5))
+
+        self._idle_minutes_slider.valueChanged.connect(_update_idle_minutes_label)
+        _update_idle_minutes_label(self._idle_minutes_slider.value())
+
+        idle_duration_label = QLabel(tr("settings.idle_duration"))
+
+        def _update_idle_controls_enabled(enabled: bool) -> None:
+            idle_duration_label.setEnabled(enabled)
+            self._idle_minutes_slider.setEnabled(enabled)
+            idle_minutes_value_label.setEnabled(enabled)
+
+        self._idle_toggle.toggled.connect(_update_idle_controls_enabled)
+        _update_idle_controls_enabled(settings.idle_detection_enabled)
+
         presence_card = _boxed_list([
             _label_row(tr("settings.idle_away"), self._idle_toggle),
+            _row(idle_duration_label, self._idle_minutes_slider, idle_minutes_value_label),
         ])
 
         save_button = QPushButton(tr("settings.save"))
@@ -202,6 +231,7 @@ class SettingsDialog(QDialog):
         self._settings.sound_enabled = self._sound_toggle.isChecked()
         self._settings.tooltip_enabled = self._tooltip_toggle.isChecked()
         self._settings.idle_detection_enabled = self._idle_toggle.isChecked()
+        self._settings.idle_threshold_minutes = self._idle_minutes_slider.value() * 5
         self._settings.sound_choice = self._sound_choice_combo.currentData()
         self._settings.sound_volume = self._volume_slider.value() / 100
         self._settings.save()

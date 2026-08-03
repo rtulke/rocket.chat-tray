@@ -51,6 +51,14 @@ class IdleWatcher(QObject):
     def is_idle(self) -> bool:
         return self._enabled and self._is_idle
 
+    def set_threshold_minutes(self, minutes: int) -> None:
+        """Change the idle threshold (user-configurable via Settings) while
+        running. Re-polls immediately if enabled so lowering the threshold
+        takes effect right away instead of waiting for the next tick."""
+        self._threshold_ms = minutes * 60 * 1000
+        if self._enabled:
+            self._poll()
+
     def set_enabled(self, enabled: bool) -> None:
         if enabled == self._enabled:
             return

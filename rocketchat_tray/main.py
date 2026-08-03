@@ -95,6 +95,7 @@ def main() -> int:
     worker = RocketChatWorker(admin_config.server_url, admin_config.verify_ssl, auth.get_stored_password)
     notifier = NotificationManager(settings)
     idle_watcher = IdleWatcher()
+    idle_watcher.set_threshold_minutes(settings.idle_threshold_minutes)
     idle_watcher.set_enabled(settings.idle_detection_enabled)
     presence_coordinator = presence.PresenceCoordinator(admin_config, settings, worker, idle_watcher)
     room_opener = RoomOpener()
@@ -140,6 +141,7 @@ def main() -> int:
             notifier.play_test_sound, update_server, reenter_password, autostart.set_enabled,
         )
         if dialog.exec() == SettingsDialog.DialogCode.Accepted:
+            idle_watcher.set_threshold_minutes(settings.idle_threshold_minutes)
             idle_watcher.set_enabled(settings.idle_detection_enabled)
             presence_coordinator.apply()
 

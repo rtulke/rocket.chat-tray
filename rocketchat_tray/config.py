@@ -34,6 +34,7 @@ DEFAULT_SETTINGS = {
     "presence": {
         "forced_status": "auto",
         "idle_detection_enabled": True,
+        "idle_threshold_minutes": 5,
         "status_message": "",
     },
     "server": {
@@ -163,6 +164,20 @@ class UserSettings:
     @idle_detection_enabled.setter
     def idle_detection_enabled(self, value: bool) -> None:
         self._data["presence"]["idle_detection_enabled"] = value
+
+    @property
+    def idle_threshold_minutes(self) -> int:
+        return self._data["presence"]["idle_threshold_minutes"]
+
+    @idle_threshold_minutes.setter
+    def idle_threshold_minutes(self, value: int) -> None:
+        # Clamped to the slider's [5, 60] range and snapped to the nearest
+        # 5-minute step, defensively -- normally only ever set from the
+        # Settings dialog's slider, which can only ever produce a valid
+        # value, but a hand-edited settings.json shouldn't be able to set an
+        # out-of-range or fractional threshold.
+        snapped = round(value / 5) * 5
+        self._data["presence"]["idle_threshold_minutes"] = max(5, min(60, snapped))
 
     @property
     def status_message(self) -> str:
