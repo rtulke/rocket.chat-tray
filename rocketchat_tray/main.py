@@ -20,6 +20,7 @@ from .resources import ICON_NAMES, icon_path
 from .settings_dialog import SettingsDialog
 from .single_instance import SingleInstanceGuard
 from .tray import TrayController
+from .widgets import BUTTON_STYLE
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -43,6 +44,7 @@ def main() -> int:
     # where the desktop-file match fails (e.g. a plain X11 session).
     app.setDesktopFileName("rocketchat-tray")
     app.setWindowIcon(QIcon(str(icon_path("online"))))
+    app.setStyleSheet(BUTTON_STYLE)
 
     # Qt's C++ event loop blocks Python from checking for pending signals,
     # so a plain Ctrl+C in a terminal can take dozens of presses (or never)

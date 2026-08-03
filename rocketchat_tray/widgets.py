@@ -4,6 +4,47 @@ from PySide6.QtCore import Property, QEasingCurve, QPropertyAnimation, QRectF, Q
 from PySide6.QtGui import QColor, QPainter, QPalette
 from PySide6.QtWidgets import QAbstractButton
 
+# App-wide QPushButton look: applied once via QApplication.setStyleSheet(),
+# so it reaches every button, including ones we don't build ourselves (e.g.
+# QMessageBox's/QInputDialog's standard OK/Cancel), not just our own dialogs.
+# Three things this overrides from the native GTK/Adwaita-derived Qt style:
+#   1. The special highlighted border+gradient a style draws around whichever
+#      button is setDefault(True) (confirmed live: renders as a thick
+#      palette(Highlight)-coloured ring -- the Yaru theme's accent orange on
+#      the user's real desktop) -- QPushButton:default below pins it back to
+#      the same plain border as every other button.
+#   2. Sharp corners -- border-radius rounds them.
+#   3. Standard-icon buttons (QMessageBox/QInputDialog assign one via
+#      style().standardIcon()) -- icon-size: 0px collapses any assigned icon
+#      to nothing without needing to touch each call site individually.
+BUTTON_STYLE = """
+QPushButton {
+    border: 1px solid #c0c0c0;
+    border-radius: 6px;
+    padding: 6px 18px;
+    min-width: 84px;
+    min-height: 22px;
+    background-color: palette(button);
+    icon-size: 0px 0px;
+}
+QPushButton:hover {
+    background-color: #ececec;
+}
+QPushButton:pressed {
+    background-color: #dcdcdc;
+}
+QPushButton:default {
+    border: 1px solid #c0c0c0;
+}
+QPushButton:focus {
+    outline: none;
+}
+QPushButton:disabled {
+    color: #9e9e9e;
+    border-color: #d8d8d8;
+}
+"""
+
 
 class ToggleSwitch(QAbstractButton):
     """Modern pill-shaped on/off switch. Drop-in replacement for QCheckBox —

@@ -5,7 +5,16 @@ from enum import Enum, auto
 
 from PySide6.QtCore import QObject, QPointF, Qt, QTimer
 from PySide6.QtGui import QAction, QActionGroup, QColor, QIcon, QPainter, QPixmap
-from PySide6.QtWidgets import QInputDialog, QMenu, QSystemTrayIcon
+from PySide6.QtWidgets import (
+    QDialog,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMenu,
+    QPushButton,
+    QSystemTrayIcon,
+    QVBoxLayout,
+)
 
 from . import auth
 from .about_dialog import AboutDialog
@@ -30,6 +39,47 @@ class ConnectionState(Enum):
     CONNECTING = auto()
     CONNECTED = auto()
     AUTH_ERROR = auto()
+
+
+class _StatusMessageDialog(QDialog):
+    """Replaces QInputDialog.getText() for the status-message prompt: Qt's
+    own standard OK/Cancel buttons only translate via Qt's own bundled
+    .qm files, which this app doesn't ship (see i18n.py), so they always
+    showed literal English "OK"/"Cancel" even under a German system locale.
+    Plain QPushButtons with our own tr() text sidestep that, matching the
+    pattern already used for LoginDialog/SettingsDialog."""
+
+    def __init__(self, current_message: str, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(tr("tray.status_message_dialog_title"))
+        self.setModal(True)
+
+        label = QLabel(tr("tray.status_message_dialog_label"))
+        label.setWordWrap(True)
+        self._field = QLineEdit(current_message)
+
+        ok_button = QPushButton(tr("common.ok"))
+        ok_button.setDefault(True)
+        ok_button.clicked.connect(self.accept)
+        self._field.returnPressed.connect(self.accept)
+        cancel_button = QPushButton(tr("common.cancel"))
+        cancel_button.clicked.connect(self.reject)
+
+        button_row = QHBoxLayout()
+        button_row.addStretch()
+        button_row.addWidget(cancel_button)
+        button_row.addWidget(ok_button)
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(label)
+        layout.addWidget(self._field)
+        layout.addLayout(button_row)
+
+        self._field.setFocus()
+        self._field.selectAll()
+
+    def text(self) -> str:
+        return self._field.text()
 
 
 def _with_unread_badge(icon: QIcon) -> QIcon:
@@ -140,12 +190,9 @@ class TrayController(QObject):
         return menu
 
     def _handle_set_status_message(self) -> None:
-        text, ok = QInputDialog.getText(
-            None, tr("tray.status_message_dialog_title"), tr("tray.status_message_dialog_label"),
-            text=self._settings.status_message,
-        )
-        if ok:
-            self._on_set_status_message(text)
+        dialog = _StatusMessageDialog(self._settings.status_message)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self._on_set_status_message(dialog.text())
 
     def _handle_show_about(self) -> None:
         AboutDialog().exec()
