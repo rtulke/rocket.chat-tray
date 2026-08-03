@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 
 import requests
+import urllib3
 
 from . import auth
 from .config import AdminConfig, ConfigError, UserSettings
@@ -71,6 +72,9 @@ def main() -> int:
     if settings.server_url_override:
         admin_config.server_url = settings.server_url_override
         admin_config.verify_ssl = settings.verify_ssl_override
+
+    if not admin_config.verify_ssl:
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
     username = auth.current_username()
     password = auth.get_stored_password(username)

@@ -36,7 +36,15 @@ def current_username() -> str:
 
 
 def get_stored_password(username: str | None = None) -> str | None:
-    return keyring.get_password(KEYRING_SERVICE, username or current_username())
+    try:
+        return keyring.get_password(KEYRING_SERVICE, username or current_username())
+    except keyring.errors.KeyringError as exc:
+        # No usable backend (e.g. no D-Bus Secret Service session -- seen
+        # running the cli.py helper over plain SSH, outside any desktop
+        # session) -- treat exactly like "no password stored" rather than
+        # crashing every caller (GUI and CLI alike).
+        logger.warning("Kein Keyring-Backend verfuegbar: %s", exc)
+        return None
 
 
 def set_stored_password(password: str, username: str | None = None) -> None:
