@@ -194,6 +194,16 @@ def main() -> int:
         # existed, rather than risk interacting with LoginDialog's own
         # nested event loop.
         logger.info("Neustart angefordert (Paket-Upgrade), starte neu...")
+        # Must happen BEFORE starting the new process: quit_app()'s
+        # worker.stop()/wait() can take a few seconds, during which this
+        # process is still alive and would otherwise still be holding the
+        # single-instance socket -- the new process's own acquire() runs
+        # almost immediately after being spawned, well before that, and
+        # without releasing first it would see the socket still taken,
+        # conclude another instance is already running, and quit right
+        # away (confirmed live: this is exactly what happened before this
+        # release() call was added).
+        guard.release()
         QProcess.startDetached(sys.executable, ["-m", "rocketchat_tray.main"])
         quit_app()
 

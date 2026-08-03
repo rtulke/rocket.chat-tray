@@ -53,3 +53,17 @@ class SingleInstanceGuard(QObject):
     def _handle_data(self, socket: QLocalSocket) -> None:
         if bytes(socket.readAll()).strip() == RESTART_COMMAND:
             self.restart_requested.emit()
+
+    def release(self) -> None:
+        """Stops listening, freeing the socket for a process we're about to
+        spawn (see main.handle_restart_requested) to bind. Without this, a
+        real race occurred: quit_app()'s worker.stop()/wait() can take up
+        to a few seconds before this process actually exits and its socket
+        closes on its own, but the just-spawned new process reaches its own
+        acquire() almost immediately -- well before that -- sees the old
+        socket still live, concludes another instance is already running,
+        and quits right away, leaving nothing running at all."""
+        if self._server is not None:
+            self._server.close()
+            QLocalServer.removeServer(SERVER_NAME)
+            self._server = None
