@@ -37,6 +37,14 @@ contents:
     file_info:
       mode: 0755
 
+  # CLI testing helper: `rocketchat <user1>,<user2>,<#channel> "text"`,
+  # sends via the same server config/stored credentials as the tray app
+  # itself -- see rocketchat_tray/cli.py.
+  - src: ./packaging/rocketchat
+    dst: /usr/bin/rocketchat
+    file_info:
+      mode: 0755
+
   - src: ./packaging/autostart.desktop
     dst: /etc/xdg/autostart/rocketchat-tray.desktop
 
