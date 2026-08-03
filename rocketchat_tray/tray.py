@@ -107,7 +107,8 @@ class TrayController(QObject):
     code on the worker thread."""
 
     def __init__(self, icons: dict[str, QIcon], settings, on_open_chat, on_open_settings,
-                 on_reenter_password, on_set_status, on_set_status_message, on_quit, parent=None):
+                 on_reenter_password, on_set_status, on_set_status_message, on_quit,
+                 on_quick_reply, parent=None):
         super().__init__(parent)
         self._icons = icons  # keys: online/away/busy/offline
         self._badged_icons = {key: _with_unread_badge(icon) for key, icon in icons.items()}
@@ -115,9 +116,10 @@ class TrayController(QObject):
         self._on_open_chat = on_open_chat
         self._on_set_status = on_set_status
         self._on_set_status_message = on_set_status_message
+        self._on_quick_reply = on_quick_reply
         self._state = ConnectionState.DISCONNECTED
         self._presence_status = "offline"
-        self._unread_rids: set[str] = set()
+        self._unread: dict[str, tuple[str, str]] = {}  # rid -> (title, room_type), insertion-ordered
         self._blink_visible = False
         self._username = ""
 
@@ -130,6 +132,7 @@ class TrayController(QObject):
 
         self._status_action = QAction(tr("tray.disconnected"), self)
         self._status_action.setEnabled(False)
+        self._missed_menu = QMenu(tr("tray.missed_messages_submenu"), None)
         self._open_chat_action = QAction(tr("tray.open_chat"), self)
         self._open_chat_action.triggered.connect(lambda: self._defer(self._handle_open_chat))
         status_menu = self._build_status_menu(settings.forced_status)
@@ -147,6 +150,8 @@ class TrayController(QObject):
 
         menu = QMenu()
         menu.addAction(self._status_action)
+        self._missed_menu_action = menu.addMenu(self._missed_menu)
+        self._missed_menu_action.setVisible(False)
         menu.addAction(self._open_chat_action)
         menu.addMenu(status_menu)
         menu.addSeparator()
@@ -238,29 +243,45 @@ class TrayController(QObject):
 
     # --- unread / blink -------------------------------------------------------
 
-    def notify_unread(self, rid: str) -> None:
-        self._unread_rids.add(rid)
+    def notify_unread(self, rid: str, title: str = "", _text: str = "", room_type: str = "") -> None:
+        self._unread[rid] = (title, room_type)
         self._refresh_unread_display()
+        self._refresh_missed_menu()
 
     def clear_unread(self, rid: str) -> None:
-        self._unread_rids.discard(rid)
+        self._unread.pop(rid, None)
         self._refresh_unread_display()
+        self._refresh_missed_menu()
 
     def clear_all_unread(self) -> None:
-        self._unread_rids.clear()
+        self._unread.clear()
         self._refresh_unread_display()
+        self._refresh_missed_menu()
 
     def _refresh_unread_display(self) -> None:
         if self._state != ConnectionState.CONNECTED:
             return
-        if self._unread_rids and self._settings.blink_enabled:
+        if self._unread and self._settings.blink_enabled:
             self._start_blink()
         else:
             self._stop_blink()
-        if self._unread_rids:
-            self._update_status_text(tr("tray.connected_unread", count=len(self._unread_rids)))
+        if self._unread:
+            self._update_status_text(tr("tray.connected_unread", count=len(self._unread)))
         else:
             self._update_status_text(tr("tray.connected_as", username=self._username))
+
+    def _refresh_missed_menu(self) -> None:
+        self._missed_menu.clear()
+        for rid, (title, _room_type) in self._unread.items():
+            action = QAction(tr("tray.missed_message_entry", sender=title or rid), self)
+            action.triggered.connect(lambda checked, r=rid: self._defer(lambda: self._handle_missed_click(r)))
+            self._missed_menu.addAction(action)
+        self._missed_menu_action.setVisible(bool(self._unread))
+
+    def _handle_missed_click(self, rid: str) -> None:
+        title, room_type = self._unread.get(rid, ("", ""))
+        self.clear_unread(rid)
+        self._on_quick_reply(rid, room_type, title)
 
     def _start_blink(self) -> None:
         if not self._blink_timer.isActive():

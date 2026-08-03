@@ -5,7 +5,7 @@ import signal
 import sys
 
 import urllib3
-from PySide6.QtCore import QProcess, QTimer
+from PySide6.QtCore import QProcess, Qt, QTimer
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication, QMessageBox
 
@@ -15,6 +15,7 @@ from .deeplink import RoomOpener
 from .i18n import tr
 from .idle_watch import IdleWatcher
 from .notifier import NotificationManager
+from .quick_reply import QuickReplyDialog
 from .rc_client import RocketChatWorker
 from .resources import ICON_NAMES, icon_path
 from .settings_dialog import SettingsDialog
@@ -163,6 +164,25 @@ def main() -> int:
         worker.wait(3000)
         app.quit()
 
+    # Kept alive here: a QuickReplyDialog with no Python reference (and no
+    # parent widget) is garbage-collected as soon as open_quick_reply()
+    # returns, which would destroy the just-shown window immediately.
+    # WA_DeleteOnClose + the destroyed-signal cleanup below keeps this from
+    # growing unbounded across a long-running session.
+    quick_reply_dialogs: list[QuickReplyDialog] = []
+
+    def open_quick_reply(rid: str, room_type: str, title: str) -> None:
+        dialog = QuickReplyDialog(
+            admin_config.server_url, worker.current_auth_token, worker.current_user_id,
+            rid, room_type, title, admin_config.verify_ssl,
+        )
+        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        quick_reply_dialogs.append(dialog)
+        dialog.destroyed.connect(lambda: quick_reply_dialogs.remove(dialog))
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+
     def handle_restart_requested() -> None:
         # packaging/postinstall.sh sends this after a .deb upgrade so the
         # already-running (now outdated) instance relaunches itself instead
@@ -188,6 +208,7 @@ def main() -> int:
         on_set_status=set_status,
         on_set_status_message=set_status_message,
         on_quit=quit_app,
+        on_quick_reply=open_quick_reply,
     )
 
     def handle_notification_click(rid: str) -> None:
