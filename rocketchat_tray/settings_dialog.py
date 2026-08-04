@@ -135,8 +135,20 @@ class SettingsDialog(QDialog):
         self._show_full_names_toggle.setChecked(settings.show_full_names)
         self._hide_deactivated_toggle = ToggleSwitch()
         self._hide_deactivated_toggle.setChecked(settings.hide_deactivated_users)
+        self._name_order_combo = QComboBox()
+        self._name_order_combo.addItem(tr("settings.name_order_last_first"), userData="last_first")
+        self._name_order_combo.addItem(tr("settings.name_order_first_last"), userData="first_last")
+        self._name_order_combo.setCurrentIndex(0 if settings.name_order == "last_first" else 1)
+
+        def _update_name_order_enabled(enabled: bool) -> None:
+            self._name_order_combo.setEnabled(enabled)
+
+        self._show_full_names_toggle.toggled.connect(_update_name_order_enabled)
+        _update_name_order_enabled(settings.show_full_names)
+
         chat_card = _boxed_list([
             _label_row(tr("settings.show_full_names"), self._show_full_names_toggle),
+            _label_row(tr("settings.name_order"), self._name_order_combo),
             _label_row(tr("settings.hide_deactivated_users"), self._hide_deactivated_toggle),
         ])
 
@@ -251,6 +263,7 @@ class SettingsDialog(QDialog):
         self._settings.tooltip_enabled = self._tooltip_toggle.isChecked()
         self._settings.app_mode_enabled = self._app_mode_toggle.isChecked()
         self._settings.show_full_names = self._show_full_names_toggle.isChecked()
+        self._settings.name_order = self._name_order_combo.currentData()
         self._settings.hide_deactivated_users = self._hide_deactivated_toggle.isChecked()
         self._settings.idle_detection_enabled = self._idle_toggle.isChecked()
         self._settings.idle_threshold_minutes = self._idle_minutes_slider.value() * 5

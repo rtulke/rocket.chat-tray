@@ -47,8 +47,11 @@ DEFAULT_SETTINGS = {
     "chat": {
         "show_full_names": True,
         "hide_deactivated_users": False,
+        "name_order": "last_first",
     },
 }
+
+NAME_ORDER_OPTIONS = ("last_first", "first_last")
 
 
 class ConfigError(Exception):
@@ -249,3 +252,17 @@ class UserSettings:
     @hide_deactivated_users.setter
     def hide_deactivated_users(self, value: bool) -> None:
         self._data["chat"]["hide_deactivated_users"] = value
+
+    @property
+    def name_order(self) -> str:
+        """"last_first" (default -- passes the LDAP-synced full name
+        through as-is, e.g. "Drescher Dirk") or "first_last" (swaps to
+        "Dirk Drescher") for full-name display -- see
+        chat_window._reorder_name()."""
+        return self._data["chat"]["name_order"]
+
+    @name_order.setter
+    def name_order(self, value: str) -> None:
+        if value not in NAME_ORDER_OPTIONS:
+            raise ValueError(f"Unbekannte Namensreihenfolge: {value!r}")
+        self._data["chat"]["name_order"] = value

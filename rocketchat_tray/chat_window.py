@@ -30,7 +30,8 @@ logger = logging.getLogger(__name__)
 
 HISTORY_COUNT = 10
 AVATAR_SIZE = 32
-SIDEBAR_AVATAR_SIZE = 20
+SIDEBAR_AVATAR_SIZE = 28  # bumped 2 "steps" up from the original 20px per user request
+SIDEBAR_FONT_POINT_STEP = 2  # ditto for the sidebar's row text (channels/groups/DM names)
 STATUS_DOT_SIZE = 10
 SIDEBAR_MIN_WIDTH = 140
 SIDEBAR_MAX_AUTO_WIDTH = 420  # cap for the auto-fit-to-widest-name default; the user can still drag past it
@@ -319,9 +320,40 @@ def _format_timestamp(ts: str) -> str:
         return ""
 
 
-def _format_message(message: dict, known_avatars: set[str], known_names: dict[str, str], show_full_names: bool) -> str:
+# The LDAP-synced `name` field arrives as "Nachname Vorname[ (suffix)]"
+# (e.g. "Drescher Dirk", "Wittwer Martin (1131)") -- confirmed live across
+# every real contact checked. Matches a trailing "(...)" suffix regardless
+# of whether it's preceded by a space, so it can be reattached cleanly
+# after swapping the two name tokens.
+_TRAILING_SUFFIX_RE = re.compile(r"\s*(\([^)]*\))\s*$")
+
+
+def _reorder_name(name: str, name_order: str) -> str:
+    """Returns `name` unchanged for "last_first" (the raw LDAP order, and
+    the default -- so users who never touch the new setting see no visual
+    change from before it existed). For "first_last", swaps the first two
+    whitespace-separated tokens, leaving anything that doesn't match this
+    simple two-token(+suffix) shape untouched (single-word names, admin
+    accounts, etc.) rather than mangling it."""
+    if name_order != "first_last":
+        return name
+    suffix_match = _TRAILING_SUFFIX_RE.search(name)
+    suffix = f" {suffix_match.group(1)}" if suffix_match else ""
+    base = name[: suffix_match.start()] if suffix_match else name
+    parts = base.split(None, 1)
+    if len(parts) != 2:
+        return name
+    last, first = parts
+    return f"{first} {last}{suffix}"
+
+
+def _format_message(
+    message: dict, known_avatars: set[str], known_names: dict[str, str], show_full_names: bool, name_order: str = "last_first",
+) -> str:
     username = message.get("u", {}).get("username", "?")
-    display_name = (known_names.get(username) if show_full_names else None) or username
+    display_name = username
+    if show_full_names and username in known_names:
+        display_name = _reorder_name(known_names[username], name_order)
     text = _render_message_body(message.get("msg", ""))
     time_str = _format_timestamp(message.get("ts", ""))
     avatar_src = f"avatar:{username}" if username in known_avatars else ""
@@ -504,6 +536,18 @@ class ChatWindow(QDialog):
         self._sidebar_list = QListWidget()
         self._sidebar_list.setMinimumWidth(SIDEBAR_MIN_WIDTH)
         self._sidebar_list.setIconSize(QSize(SIDEBAR_AVATAR_SIZE, SIDEBAR_AVATAR_SIZE))
+        # Bumps every row's text (channels/groups/DM names, and the section
+        # headers along with them since they inherit this same font before
+        # their own bold/colour tweaks are layered on) -- pointSize() is -1
+        # if the inherited font was set by pixel size instead, hence the
+        # pixelSize() fallback so this works regardless of how the theme's
+        # base font was specified.
+        sidebar_font = self._sidebar_list.font()
+        if sidebar_font.pointSize() > 0:
+            sidebar_font.setPointSize(sidebar_font.pointSize() + SIDEBAR_FONT_POINT_STEP)
+        elif sidebar_font.pixelSize() > 0:
+            sidebar_font.setPixelSize(sidebar_font.pixelSize() + SIDEBAR_FONT_POINT_STEP * 2)
+        self._sidebar_list.setFont(sidebar_font)
         self._sidebar_list.itemClicked.connect(self._handle_sidebar_click)
         # Becomes True the moment the user drags the splitter handle
         # themselves -- from then on _apply_auto_sidebar_width() backs off
@@ -680,7 +724,8 @@ class ChatWindow(QDialog):
         info = self._dm_info.get(username, {})
         status = info.get("status", "offline")
         active = info.get("active", True)
-        display_name = (info.get("name") if self._settings.show_full_names else "") or username
+        raw_name = info.get("name") if self._settings.show_full_names else ""
+        display_name = _reorder_name(raw_name, self._settings.name_order) if raw_name else username
 
         font = item.font()
         if active:
@@ -798,7 +843,10 @@ class ChatWindow(QDialog):
             self._history_view.setHtml(html.escape(tr("quick_reply.no_history")))
             return
         self._history_view.setHtml(
-            "".join(_format_message(m, self._known_avatars, self._known_names, self._settings.show_full_names) for m in messages)
+            "".join(
+                _format_message(m, self._known_avatars, self._known_names, self._settings.show_full_names, self._settings.name_order)
+                for m in messages
+            )
         )
         scrollbar = self._history_view.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
@@ -831,7 +879,9 @@ class ChatWindow(QDialog):
         self._append_message(message)
 
     def _append_message(self, message: dict) -> None:
-        self._history_view.append(_format_message(message, self._known_avatars, self._known_names, self._settings.show_full_names))
+        self._history_view.append(
+            _format_message(message, self._known_avatars, self._known_names, self._settings.show_full_names, self._settings.name_order)
+        )
         scrollbar = self._history_view.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
 
