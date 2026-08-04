@@ -44,6 +44,10 @@ DEFAULT_SETTINGS = {
     "browser": {
         "app_mode_enabled": False,
     },
+    "chat": {
+        "show_full_names": True,
+        "hide_deactivated_users": False,
+    },
 }
 
 
@@ -101,6 +105,7 @@ class UserSettings:
                 data["presence"].update(loaded.get("presence", {}))
                 data["server"].update(loaded.get("server", {}))
                 data["browser"].update(loaded.get("browser", {}))
+                data["chat"].update(loaded.get("chat", {}))
             except (json.JSONDecodeError, OSError) as exc:
                 logger.warning("Konnte %s nicht lesen, verwende Standardwerte: %s", path, exc)
         return cls(data, path=path)
@@ -221,3 +226,26 @@ class UserSettings:
     @app_mode_enabled.setter
     def app_mode_enabled(self, value: bool) -> None:
         self._data["browser"]["app_mode_enabled"] = value
+
+    @property
+    def show_full_names(self) -> bool:
+        """Chat window sidebar/message sender display: full LDAP-synced
+        display name (users.info's "name" field) instead of the bare login
+        username."""
+        return self._data["chat"]["show_full_names"]
+
+    @show_full_names.setter
+    def show_full_names(self, value: bool) -> None:
+        self._data["chat"]["show_full_names"] = value
+
+    @property
+    def hide_deactivated_users(self) -> bool:
+        """Chat window DM sidebar: fully hide contacts whose Rocket.Chat
+        account is deactivated (users.info's "active": false -- typically an
+        LDAP-synced account no longer present on the LDAP side) instead of
+        showing them greyed out."""
+        return self._data["chat"]["hide_deactivated_users"]
+
+    @hide_deactivated_users.setter
+    def hide_deactivated_users(self, value: bool) -> None:
+        self._data["chat"]["hide_deactivated_users"] = value

@@ -131,6 +131,15 @@ class SettingsDialog(QDialog):
             _label_row(tr("settings.app_mode"), self._app_mode_toggle),
         ])
 
+        self._show_full_names_toggle = ToggleSwitch()
+        self._show_full_names_toggle.setChecked(settings.show_full_names)
+        self._hide_deactivated_toggle = ToggleSwitch()
+        self._hide_deactivated_toggle.setChecked(settings.hide_deactivated_users)
+        chat_card = _boxed_list([
+            _label_row(tr("settings.show_full_names"), self._show_full_names_toggle),
+            _label_row(tr("settings.hide_deactivated_users"), self._hide_deactivated_toggle),
+        ])
+
         self._sound_choices = sounds.available_choices()
         self._sound_choice_combo = QComboBox()
         for key, label, _path in self._sound_choices:
@@ -216,6 +225,8 @@ class SettingsDialog(QDialog):
         layout.addWidget(server_card)
         layout.addWidget(_section_label(tr("settings.section_browser")))
         layout.addWidget(browser_card)
+        layout.addWidget(_section_label(tr("settings.section_chat")))
+        layout.addWidget(chat_card)
         layout.addWidget(_section_label(tr("settings.section_notifications")))
         layout.addWidget(notifications_card)
         layout.addWidget(_section_label(tr("settings.section_presence")))
@@ -239,6 +250,8 @@ class SettingsDialog(QDialog):
         self._settings.sound_enabled = self._sound_toggle.isChecked()
         self._settings.tooltip_enabled = self._tooltip_toggle.isChecked()
         self._settings.app_mode_enabled = self._app_mode_toggle.isChecked()
+        self._settings.show_full_names = self._show_full_names_toggle.isChecked()
+        self._settings.hide_deactivated_users = self._hide_deactivated_toggle.isChecked()
         self._settings.idle_detection_enabled = self._idle_toggle.isChecked()
         self._settings.idle_threshold_minutes = self._idle_minutes_slider.value() * 5
         self._settings.sound_choice = self._sound_choice_combo.currentData()

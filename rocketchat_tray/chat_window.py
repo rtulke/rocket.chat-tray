@@ -8,8 +8,9 @@ from datetime import datetime
 
 import requests
 from PySide6.QtCore import Qt, QSize, QUrl, Signal
-from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap, QTextDocument
+from PySide6.QtGui import QBrush, QColor, QIcon, QKeySequence, QPainter, QPixmap, QTextDocument
 from PySide6.QtWidgets import (
+    QApplication,
     QDialog,
     QHBoxLayout,
     QLabel,
@@ -17,8 +18,10 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QPushButton,
+    QSplitter,
     QTextBrowser,
     QVBoxLayout,
+    QWidget,
 )
 
 from .i18n import tr
@@ -29,6 +32,8 @@ HISTORY_COUNT = 10
 AVATAR_SIZE = 32
 SIDEBAR_AVATAR_SIZE = 20
 STATUS_DOT_SIZE = 10
+SIDEBAR_MIN_WIDTH = 140
+SIDEBAR_MAX_AUTO_WIDTH = 420  # cap for the auto-fit-to-widest-name default; the user can still drag past it
 _HTTP_TIMEOUT = 10
 
 # Matches rocketchat_tray/resources/icons/bubble-*.svg exactly, so the DM
@@ -197,7 +202,7 @@ def fetch_direct_messages(
     to match live presence pushes (which identify the user by id, not
     name) to the right sidebar row -- comes for free without a second
     lookup per contact. Presence *status* itself is deliberately not
-    fetched here -- see fetch_user_status, called separately per contact
+    fetched here -- see fetch_user_details, called separately per contact
     so the sidebar can render immediately and fill in status dots as they
     resolve."""
     headers = {"X-Auth-Token": auth_token, "X-User-Id": user_id}
@@ -222,19 +227,25 @@ def fetch_direct_messages(
     return dms
 
 
-def fetch_user_status(server_url: str, auth_token: str, user_id: str, username: str, verify_ssl: bool = True) -> str:
-    """Best-effort; "offline" (the neutral/unknown-looking dot) on any
-    failure rather than raising, since this drives a decorative sidebar
-    icon, not anything essential."""
+def fetch_user_details(server_url: str, auth_token: str, user_id: str, username: str, verify_ssl: bool = True) -> dict:
+    """{"status", "name", "active"} for `username` -- "status" drives the
+    sidebar presence dot, "name" is the LDAP-synced full display name
+    (users.info's own "name" field, distinct from "username"), "active"
+    is False for a deactivated account (confirmed live: this is what an
+    LDAP-removed user looks like via this API -- Rocket.Chat deactivates
+    rather than deletes on sync by default). Best-effort neutral defaults
+    ("offline"/""/True) on any failure, since none of this is essential --
+    worst case a contact just shows its username with no status dot."""
     try:
         response = requests.get(
             f"{server_url}/api/v1/users.info", params={"username": username},
             headers={"X-Auth-Token": auth_token, "X-User-Id": user_id}, verify=verify_ssl, timeout=_HTTP_TIMEOUT,
         )
         response.raise_for_status()
-        return response.json().get("user", {}).get("status", "offline")
+        user = response.json().get("user", {})
+        return {"status": user.get("status", "offline"), "name": user.get("name") or "", "active": user.get("active", True)}
     except (requests.RequestException, ValueError):
-        return "offline"
+        return {"status": "offline", "name": "", "active": True}
 
 
 def _linkify(text: str) -> str:
@@ -258,6 +269,47 @@ def _linkify(text: str) -> str:
     return "".join(out).replace("\n", "<br>")
 
 
+# A leading "```<language>\n" tag (Rocket.Chat's own convention, e.g.
+# "```bash") is metadata, not code -- stripped from the rendered block and
+# shown as a small label above it instead. Requires a trailing newline so a
+# one-line snippet like "```echo hi```" isn't mistaken for a bare language tag.
+_LANG_TAG_RE = re.compile(r"^[ \t]*([A-Za-z0-9_+-]{1,20})[ \t]*\n")
+_CODE_BLOCK_STYLE = (
+    "background-color:#f5f5f5;border:1px solid #dddddd;border-radius:4px;"
+    "padding:6px 8px;margin:4px 0;font-family:monospace;white-space:pre-wrap;"
+)
+
+
+def _render_code_block(raw: str) -> str:
+    language, body = "", raw
+    match = _LANG_TAG_RE.match(raw)
+    if match:
+        language, body = match.group(1), raw[match.end():]
+    body = body.rstrip("\n")
+    label = f'<div style="color:#888888;font-size:11px;">{html.escape(language)}</div>' if language else ""
+    return f'{label}<pre style="{_CODE_BLOCK_STYLE}">{html.escape(body)}</pre>'
+
+
+def _render_message_body(text: str) -> str:
+    """Renders a message's text, turning ```-fenced spans into monospace
+    code blocks (see _render_code_block) and leaving everything else to
+    _linkify as before. text.split("```") always alternates
+    text/code/text/code/... starting with text, regardless of whether the
+    fence count is even or odd -- so a message with an odd number of ```
+    (an unclosed trailing fence) naturally has its last segment land on a
+    code index and render as code through to the end of the message,
+    auto-closing it exactly like the real Rocket.Chat client does, with no
+    special-casing needed."""
+    parts = text.split("```")
+    out = []
+    for i, part in enumerate(parts):
+        if i % 2 == 1:
+            out.append(_render_code_block(part))
+        elif part:
+            out.append(_linkify(part))
+    return "".join(out)
+
+
 def _format_timestamp(ts: str) -> str:
     if not ts:
         return ""
@@ -267,16 +319,17 @@ def _format_timestamp(ts: str) -> str:
         return ""
 
 
-def _format_message(message: dict, known_avatars: set[str]) -> str:
-    sender = message.get("u", {}).get("username", "?")
-    text = _linkify(message.get("msg", ""))
+def _format_message(message: dict, known_avatars: set[str], known_names: dict[str, str], show_full_names: bool) -> str:
+    username = message.get("u", {}).get("username", "?")
+    display_name = (known_names.get(username) if show_full_names else None) or username
+    text = _render_message_body(message.get("msg", ""))
     time_str = _format_timestamp(message.get("ts", ""))
-    avatar_src = f"avatar:{sender}" if sender in known_avatars else ""
+    avatar_src = f"avatar:{username}" if username in known_avatars else ""
     avatar_html = f'<img src="{avatar_src}" width="{AVATAR_SIZE}" height="{AVATAR_SIZE}">' if avatar_src else ""
     return (
         '<table cellspacing="0" cellpadding="0" style="margin-bottom:10px;"><tr>'
         f'<td valign="top" width="{AVATAR_SIZE + 8}">{avatar_html}</td>'
-        f'<td valign="top"><b>{html.escape(sender)}</b> '
+        f'<td valign="top"><b>{html.escape(display_name)}</b> '
         f'<span style="color:#888888;">{html.escape(time_str)}</span><br>{text}</td>'
         "</tr></table>"
     )
@@ -336,6 +389,57 @@ def _avatar_status_icon(avatar: QPixmap | None, status: str) -> QIcon:
 _ROOM_ROLE = Qt.ItemDataRole.UserRole
 
 
+class _HistoryBrowser(QTextBrowser):
+    """QTextBrowser's default Ctrl+C/context-menu "Copy" includes a U+FFFC
+    object-replacement character for every inline avatar <img> in the
+    selection -- confirmed live: Ctrl+A, Ctrl+C into a text editor showed a
+    stray box glyph per message. Overriding the public copy() slot alone
+    turned out to be not enough: confirmed via a simulated Ctrl+C key event
+    that Qt's internal text control handles the standard Copy *shortcut*
+    itself, writing straight to the clipboard without ever calling this
+    object's (overridable) copy() -- so the keyboard path additionally
+    needs its own keyPressEvent interception, calling copy() explicitly and
+    consuming the event so Qt's own handling doesn't run afterwards and
+    clobber the clipboard right back. The right-click context menu's own
+    "Copy" entry turned out to have the exact same problem -- also
+    confirmed by triggering it programmatically in a test and inspecting
+    the resulting clipboard content -- so contextMenuEvent() below rewires
+    that one entry to call copy() too."""
+
+    def copy(self) -> None:
+        # QTextCursor.selectedText() encodes embedded objects (the avatar
+        # <img> tags) as U+FFFC and paragraph/line breaks as U+2029, not a
+        # plain "\n" -- translate both before handing the text to the
+        # clipboard.
+        text = self.textCursor().selectedText().replace("\ufffc", "").replace("\u2029", "\n")
+        QApplication.clipboard().setText(text)
+
+    def keyPressEvent(self, event) -> None:
+        if event.matches(QKeySequence.StandardKey.Copy):
+            self.copy()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def _standard_context_menu_with_copy_fix(self):
+        """Split out from contextMenuEvent() so the rewiring itself is
+        directly testable without going through QMenu.exec()'s blocking
+        modal loop (there's nothing to click in an offscreen/headless
+        test)."""
+        menu = self.createStandardContextMenu()
+        for action in menu.actions():
+            label = action.text().split("\t")[0].replace("&", "").strip().lower()
+            if label == "copy":
+                action.triggered.disconnect()
+                action.triggered.connect(self.copy)
+                break
+        return menu
+
+    def contextMenuEvent(self, event) -> None:
+        self._standard_context_menu_with_copy_fix().exec(event.globalPos())
+
+
+
 class ChatWindow(QDialog):
     """Native chat window: a sidebar (joined channels/groups, direct
     messages with a live presence dot) on the left, and the previously
@@ -358,15 +462,15 @@ class ChatWindow(QDialog):
 
     _channels_loaded = Signal(list)
     _dms_loaded = Signal(list)
-    _status_resolved = Signal(str, str)  # username, status -- one at a time as each resolves
+    _dm_details_resolved = Signal(str, dict)  # username, {"status","name","active"} -- one at a time as each resolves
     _room_avatar_resolved = Signal(str, object)  # rid, avatar_bytes|None
     _dm_avatar_resolved = Signal(str, object)  # username, avatar_bytes|None
-    _history_loaded = Signal(list, dict)  # messages, {username: avatar_bytes}
+    _history_loaded = Signal(list, dict, dict)  # messages, {username: avatar_bytes}, {username: full_name}
     _send_finished = Signal(bool, str)
-    _live_avatar_ready = Signal(str, object, dict)  # username, avatar_bytes|None, message
+    _live_avatar_ready = Signal(str, object, str, dict)  # username, avatar_bytes|None, full_name, message
 
     def __init__(
-        self, server_url: str, auth_token: str, user_id: str, own_username: str, worker,
+        self, server_url: str, auth_token: str, user_id: str, own_username: str, worker, settings,
         initial_rid: str | None = None, initial_room_type: str | None = None, initial_title: str = "",
         verify_ssl: bool = True, parent=None,
     ):
@@ -376,15 +480,17 @@ class ChatWindow(QDialog):
         self._user_id = user_id
         self._own_username = own_username
         self._worker = worker
+        self._settings = settings
         self._verify_ssl = verify_ssl
         self._rid = initial_rid
         self._room_type = initial_room_type
         self._known_avatars: set[str] = set()  # usernames already registered as document resources
+        self._known_names: dict[str, str] = {}  # username -> resolved full name, for message-sender display
         self._room_items: dict[str, QListWidgetItem] = {}  # rid -> its sidebar QListWidgetItem (channels/groups)
         self._dm_items: dict[str, QListWidgetItem] = {}  # username -> its sidebar QListWidgetItem
         self._dm_username_by_id: dict[str, str] = {}  # other-participant user_id -> username, for live presence
-        self._dm_avatars: dict[str, QPixmap] = {}  # username -> resolved avatar, for re-compositing on status changes
-        self._dm_status: dict[str, str] = {}  # username -> last-known status, for re-compositing on avatar arrival
+        self._dm_avatars: dict[str, QPixmap] = {}  # username -> resolved avatar, for re-compositing on info changes
+        self._dm_info: dict[str, dict] = {}  # username -> {"status","name","active"}, for re-compositing on avatar arrival
 
         self.setWindowTitle(tr("chat_window.title", room=initial_title) if initial_title else tr("chat_window.title_generic"))
         self.setModal(False)
@@ -396,16 +502,23 @@ class ChatWindow(QDialog):
         # look-like-several-mini-windows effect two independently-scrolling,
         # independently-bordered lists had.
         self._sidebar_list = QListWidget()
-        self._sidebar_list.setMaximumWidth(220)
+        self._sidebar_list.setMinimumWidth(SIDEBAR_MIN_WIDTH)
         self._sidebar_list.setIconSize(QSize(SIDEBAR_AVATAR_SIZE, SIDEBAR_AVATAR_SIZE))
         self._sidebar_list.itemClicked.connect(self._handle_sidebar_click)
+        # Becomes True the moment the user drags the splitter handle
+        # themselves -- from then on _apply_auto_sidebar_width() backs off
+        # and leaves their chosen width alone instead of fighting it every
+        # time the sidebar content changes (a new DM's full name resolving
+        # and being wider than anything seen so far, etc.).
+        self._sidebar_user_resized = False
 
-        self._history_view = QTextBrowser()
+        self._history_view = _HistoryBrowser()
         self._history_view.setOpenExternalLinks(True)
         self._history_view.setHtml(html.escape(tr("chat_window.select_room")) if not initial_rid else html.escape(tr("quick_reply.loading")))
 
         self._input = QLineEdit()
         self._input.setPlaceholderText(tr("quick_reply.placeholder"))
+        self._input.setTextMargins(6, 0, 6, 0)  # placeholder/typed text otherwise sits flush against the field's edge
         self._input.returnPressed.connect(self._handle_send)
 
         self._send_button = QPushButton(tr("quick_reply.send"))
@@ -428,14 +541,26 @@ class ChatWindow(QDialog):
         chat_side.addWidget(self._history_view, stretch=1)
         chat_side.addWidget(self._status_label)
         chat_side.addLayout(input_row)
+        chat_side_widget = QWidget()
+        chat_side_widget.setLayout(chat_side)
+
+        # A QSplitter (not a plain QHBoxLayout) so the user can drag the
+        # boundary themselves; setChildrenCollapsible(False) stops a drag
+        # from ever hiding the sidebar entirely by accident.
+        self._splitter = QSplitter(Qt.Orientation.Horizontal)
+        self._splitter.addWidget(self._sidebar_list)
+        self._splitter.addWidget(chat_side_widget)
+        self._splitter.setChildrenCollapsible(False)
+        self._splitter.setStretchFactor(0, 0)
+        self._splitter.setStretchFactor(1, 1)
+        self._splitter.splitterMoved.connect(self._handle_splitter_moved)
 
         root = QHBoxLayout(self)
-        root.addWidget(self._sidebar_list)
-        root.addLayout(chat_side, stretch=1)
+        root.addWidget(self._splitter)
 
         self._channels_loaded.connect(self._display_channels)
         self._dms_loaded.connect(self._display_dms)
-        self._status_resolved.connect(self._handle_status_resolved)
+        self._dm_details_resolved.connect(self._handle_dm_details_resolved)
         self._room_avatar_resolved.connect(self._handle_room_avatar_resolved)
         self._dm_avatar_resolved.connect(self._handle_dm_avatar_resolved)
         self._history_loaded.connect(self._display_history)
@@ -476,8 +601,8 @@ class ChatWindow(QDialog):
         dms = fetch_direct_messages(self._server_url, self._auth_token, self._user_id, self._own_username, self._verify_ssl)
         self._dms_loaded.emit(dms)
         for dm in dms:
-            status = fetch_user_status(self._server_url, self._auth_token, self._user_id, dm["username"], self._verify_ssl)
-            self._status_resolved.emit(dm["username"], status)
+            details = fetch_user_details(self._server_url, self._auth_token, self._user_id, dm["username"], self._verify_ssl)
+            self._dm_details_resolved.emit(dm["username"], details)
             avatar_data = fetch_avatar(self._server_url, dm["username"], self._verify_ssl)
             self._dm_avatar_resolved.emit(dm["username"], avatar_data)
 
@@ -496,6 +621,7 @@ class ChatWindow(QDialog):
         self._room_items.clear()
         self._add_sidebar_section(tr("chat_window.channels_section"), [c for c in channels if c["room_type"] == "c"])
         self._add_sidebar_section(tr("chat_window.groups_section"), [c for c in channels if c["room_type"] == "p"])
+        self._apply_auto_sidebar_width()
 
     def _display_dms(self, dms: list[dict]) -> None:
         self._dm_items.clear()
@@ -509,6 +635,33 @@ class ChatWindow(QDialog):
             self._dm_username_by_id[dm["user_id"]] = dm["username"]
             if dm["rid"] == self._rid:
                 self._sidebar_list.setCurrentItem(item)
+        self._apply_auto_sidebar_width()
+
+    def _handle_splitter_moved(self, pos: int, index: int) -> None:
+        self._sidebar_user_resized = True
+
+    def _compute_sidebar_width(self) -> int:
+        """The widest current row label (channels/groups/DMs/headers) plus
+        room for the icon and ~2 average character widths of breathing
+        room, per the user's request -- clamped to a sane range so an
+        empty/near-empty list or one freak long name doesn't produce a
+        degenerate width."""
+        metrics = self._sidebar_list.fontMetrics()
+        widest_text = 0
+        for i in range(self._sidebar_list.count()):
+            widest_text = max(widest_text, metrics.horizontalAdvance(self._sidebar_list.item(i).text()))
+        icon_and_gap = SIDEBAR_AVATAR_SIZE + 12
+        two_chars = metrics.averageCharWidth() * 2
+        scrollbar_allowance = self._sidebar_list.verticalScrollBar().sizeHint().width() + 8
+        width = widest_text + icon_and_gap + two_chars + scrollbar_allowance
+        return max(SIDEBAR_MIN_WIDTH, min(width, SIDEBAR_MAX_AUTO_WIDTH))
+
+    def _apply_auto_sidebar_width(self) -> None:
+        if self._sidebar_user_resized:
+            return
+        width = self._compute_sidebar_width()
+        total = sum(self._splitter.sizes()) or (width + 400)
+        self._splitter.setSizes([width, max(1, total - width)])
 
     def _handle_room_avatar_resolved(self, rid: str, data: bytes | None) -> None:
         if not data:
@@ -520,30 +673,72 @@ class ChatWindow(QDialog):
         if pixmap.loadFromData(data):
             item.setIcon(_room_avatar_icon(pixmap))
 
-    def _update_dm_icon(self, username: str) -> None:
+    def _update_dm_row(self, username: str) -> None:
         item = self._dm_items.get(username)
-        if item:
-            item.setIcon(_avatar_status_icon(self._dm_avatars.get(username), self._dm_status.get(username, "offline")))
+        if not item:
+            return
+        info = self._dm_info.get(username, {})
+        status = info.get("status", "offline")
+        active = info.get("active", True)
+        display_name = (info.get("name") if self._settings.show_full_names else "") or username
+
+        font = item.font()
+        if active:
+            item.setHidden(False)
+            item.setText(display_name)
+            item.setForeground(QBrush())  # clears any override back to the view's default text colour
+            item.setIcon(_avatar_status_icon(self._dm_avatars.get(username), status))
+            font.setItalic(False)
+        else:
+            # Deactivated (typically LDAP-removed) account -- either hidden
+            # entirely or shown clearly greyed-out/labelled, per the user's
+            # settings toggle, rather than looking identical to an active
+            # colleague. No presence dot: a gone account has no meaningful
+            # live status regardless of its last-known one.
+            item.setHidden(self._settings.hide_deactivated_users)
+            item.setText(tr("chat_window.deactivated_label", name=display_name))
+            item.setForeground(QColor("#aaaaaa"))
+            item.setIcon(_avatar_status_icon(self._dm_avatars.get(username), "offline"))
+            font.setItalic(True)
+        item.setFont(font)
+        self._apply_auto_sidebar_width()
 
     def _handle_dm_avatar_resolved(self, username: str, data: bytes | None) -> None:
         if data:
             pixmap = QPixmap()
             if pixmap.loadFromData(data):
                 self._dm_avatars[username] = pixmap
-        self._update_dm_icon(username)
+        self._update_dm_row(username)
 
-    def _handle_status_resolved(self, username: str, status: str) -> None:
-        self._dm_status[username] = status
-        self._update_dm_icon(username)
+    def _handle_dm_details_resolved(self, username: str, details: dict) -> None:
+        self._dm_info[username] = details
+        self._update_dm_row(username)
 
     def _handle_presence_update(self, user_id: str, status: str) -> None:
         # Live presence pushes identify the user by id; _display_dms built
         # the id->username map from im.list's "uids" array (same order as
         # "usernames", no extra lookup needed) so this can update the right
         # sidebar row directly instead of only the currently-open DM.
+        # setdefault+update rather than a plain assignment: preserves the
+        # name/active fields already resolved by _handle_dm_details_resolved
+        # instead of clobbering them with a status-only dict.
         username = self._dm_username_by_id.get(user_id)
-        if username:
-            self._handle_status_resolved(username, status)
+        if not username:
+            return
+        self._dm_info.setdefault(username, {"status": "offline", "name": "", "active": True})["status"] = status
+        self._update_dm_row(username)
+
+    def apply_settings(self) -> None:
+        """Re-renders sidebar DM rows against already-cached data (no
+        network I/O) after the settings dialog closes, so a show_full_names/
+        hide_deactivated_users change while this window is already open
+        takes effect immediately rather than only on the next room/window
+        open. Called from main.py. The message view's own full-name display
+        is deliberately not retroactively re-rendered here -- only future
+        messages pick up the change -- to avoid needing to keep the raw
+        message list around just for this."""
+        for username in list(self._dm_items):
+            self._update_dm_row(username)
 
     def _handle_sidebar_click(self, item: QListWidgetItem) -> None:
         data = item.data(_ROOM_ROLE)
@@ -571,13 +766,20 @@ class ChatWindow(QDialog):
             self._server_url, self._auth_token, self._user_id, self._rid, self._room_type, self._verify_ssl,
         )
         avatars: dict[str, bytes] = {}
+        names: dict[str, str] = {}
         for message in messages:
             username = message.get("u", {}).get("username")
-            if username and username not in self._known_avatars and username not in avatars:
+            if not username:
+                continue
+            if username not in self._known_avatars and username not in avatars:
                 data = fetch_avatar(self._server_url, username, self._verify_ssl)
                 if data:
                     avatars[username] = data
-        self._history_loaded.emit(messages, avatars)
+            if self._settings.show_full_names and username not in self._known_names and username not in names:
+                name = fetch_user_details(self._server_url, self._auth_token, self._user_id, username, self._verify_ssl).get("name")
+                if name:
+                    names[username] = name
+        self._history_loaded.emit(messages, avatars, names)
 
     def _register_avatar(self, username: str, data: bytes) -> bool:
         pixmap = QPixmap()
@@ -587,14 +789,17 @@ class ChatWindow(QDialog):
         self._known_avatars.add(username)
         return True
 
-    def _display_history(self, messages: list[dict], avatars: dict[str, bytes]) -> None:
+    def _display_history(self, messages: list[dict], avatars: dict[str, bytes], names: dict[str, str]) -> None:
         for username, data in avatars.items():
             self._register_avatar(username, data)
+        self._known_names.update(names)
 
         if not messages:
             self._history_view.setHtml(html.escape(tr("quick_reply.no_history")))
             return
-        self._history_view.setHtml("".join(_format_message(m, self._known_avatars) for m in messages))
+        self._history_view.setHtml(
+            "".join(_format_message(m, self._known_avatars, self._known_names, self._settings.show_full_names) for m in messages)
+        )
         scrollbar = self._history_view.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
 
@@ -604,22 +809,29 @@ class ChatWindow(QDialog):
         if message.get("rid") != self._rid:
             return
         sender = message.get("u", {}).get("username")
-        if sender and sender not in self._known_avatars:
+        needs_avatar = bool(sender) and sender not in self._known_avatars
+        needs_name = bool(sender) and self._settings.show_full_names and sender not in self._known_names
+        if needs_avatar or needs_name:
             threading.Thread(target=self._fetch_live_avatar, args=(sender, message), daemon=True).start()
         else:
             self._append_message(message)
 
     def _fetch_live_avatar(self, sender: str, message: dict) -> None:
-        data = fetch_avatar(self._server_url, sender, self._verify_ssl)
-        self._live_avatar_ready.emit(sender, data, message)
+        data = fetch_avatar(self._server_url, sender, self._verify_ssl) if sender not in self._known_avatars else None
+        name = ""
+        if self._settings.show_full_names and sender not in self._known_names:
+            name = fetch_user_details(self._server_url, self._auth_token, self._user_id, sender, self._verify_ssl).get("name", "")
+        self._live_avatar_ready.emit(sender, data, name, message)
 
-    def _handle_live_avatar_ready(self, sender: str, data: bytes | None, message: dict) -> None:
+    def _handle_live_avatar_ready(self, sender: str, data: bytes | None, name: str, message: dict) -> None:
         if data:
             self._register_avatar(sender, data)
+        if name:
+            self._known_names[sender] = name
         self._append_message(message)
 
     def _append_message(self, message: dict) -> None:
-        self._history_view.append(_format_message(message, self._known_avatars))
+        self._history_view.append(_format_message(message, self._known_avatars, self._known_names, self._settings.show_full_names))
         scrollbar = self._history_view.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
 

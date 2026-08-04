@@ -145,6 +145,8 @@ def main() -> int:
             idle_watcher.set_threshold_minutes(settings.idle_threshold_minutes)
             idle_watcher.set_enabled(settings.idle_detection_enabled)
             presence_coordinator.apply()
+            if chat_window is not None:
+                chat_window.apply_settings()
 
     def set_status(status: str) -> None:
         settings.forced_status = status
@@ -181,7 +183,7 @@ def main() -> int:
         else:
             chat_window = ChatWindow(
                 admin_config.server_url, worker.current_auth_token, worker.current_user_id,
-                auth.current_username(), worker, rid, room_type, title, admin_config.verify_ssl,
+                auth.current_username(), worker, settings, rid, room_type, title, admin_config.verify_ssl,
             )
             chat_window.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
 
