@@ -10,12 +10,12 @@ from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from . import auth, autostart, presence
+from .chat_window import ChatWindow
 from .config import AdminConfig, ConfigError, UserSettings
 from .deeplink import RoomOpener
 from .i18n import tr
 from .idle_watch import IdleWatcher
 from .notifier import NotificationManager
-from .quick_reply import QuickReplyDialog
 from .rc_client import RocketChatWorker
 from .resources import ICON_NAMES, icon_path
 from .settings_dialog import SettingsDialog
@@ -164,24 +164,35 @@ def main() -> int:
         worker.wait(3000)
         app.quit()
 
-    # Kept alive here: a QuickReplyDialog with no Python reference (and no
-    # parent widget) is garbage-collected as soon as open_quick_reply()
-    # returns, which would destroy the just-shown window immediately.
-    # WA_DeleteOnClose + the destroyed-signal cleanup below keeps this from
-    # growing unbounded across a long-running session.
-    quick_reply_dialogs: list[QuickReplyDialog] = []
+    # Singleton by design (see ChatWindow's own docstring): only one room's
+    # live message stream can ever be subscribed at a time
+    # (RocketChatWorker.set_active_room), so a second independent window
+    # would just fight the first over which room is "live" -- clicking a
+    # second "Verpasste Nachrichten" entry (or the "Chat" menu action)
+    # while one is already open reuses it and switches its selected room,
+    # rather than opening a duplicate.
+    chat_window: ChatWindow | None = None
 
-    def open_quick_reply(rid: str, room_type: str, title: str) -> None:
-        dialog = QuickReplyDialog(
-            admin_config.server_url, worker.current_auth_token, worker.current_user_id,
-            rid, room_type, title, admin_config.verify_ssl,
-        )
-        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
-        quick_reply_dialogs.append(dialog)
-        dialog.destroyed.connect(lambda: quick_reply_dialogs.remove(dialog))
-        dialog.show()
-        dialog.raise_()
-        dialog.activateWindow()
+    def open_chat_window(rid: str | None, room_type: str | None, title: str) -> None:
+        nonlocal chat_window
+        if chat_window is not None:
+            if rid:
+                chat_window.select_room(rid, room_type, title)
+        else:
+            chat_window = ChatWindow(
+                admin_config.server_url, worker.current_auth_token, worker.current_user_id,
+                auth.current_username(), worker, rid, room_type, title, admin_config.verify_ssl,
+            )
+            chat_window.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+
+            def _clear_chat_window() -> None:
+                nonlocal chat_window
+                chat_window = None
+
+            chat_window.destroyed.connect(_clear_chat_window)
+        chat_window.show()
+        chat_window.raise_()
+        chat_window.activateWindow()
 
     def handle_restart_requested() -> None:
         # packaging/postinstall.sh sends this after a .deb upgrade so the
@@ -218,7 +229,7 @@ def main() -> int:
         on_set_status=set_status,
         on_set_status_message=set_status_message,
         on_quit=quit_app,
-        on_quick_reply=open_quick_reply,
+        on_open_chat_window=open_chat_window,
     )
 
     def handle_notification_click(rid: str) -> None:

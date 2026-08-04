@@ -108,7 +108,7 @@ class TrayController(QObject):
 
     def __init__(self, icons: dict[str, QIcon], settings, on_open_chat, on_open_settings,
                  on_reenter_password, on_set_status, on_set_status_message, on_quit,
-                 on_quick_reply, parent=None):
+                 on_open_chat_window, parent=None):
         super().__init__(parent)
         self._icons = icons  # keys: online/away/busy/offline
         self._badged_icons = {key: _with_unread_badge(icon) for key, icon in icons.items()}
@@ -116,7 +116,7 @@ class TrayController(QObject):
         self._on_open_chat = on_open_chat
         self._on_set_status = on_set_status
         self._on_set_status_message = on_set_status_message
-        self._on_quick_reply = on_quick_reply
+        self._on_open_chat_window = on_open_chat_window
         self._state = ConnectionState.DISCONNECTED
         self._presence_status = "offline"
         self._unread: dict[str, tuple[str, str]] = {}  # rid -> (title, room_type), insertion-ordered
@@ -135,6 +135,8 @@ class TrayController(QObject):
         self._missed_menu = QMenu(tr("tray.missed_messages_submenu"), None)
         self._open_chat_action = QAction(tr("tray.open_chat"), self)
         self._open_chat_action.triggered.connect(lambda: self._defer(self._handle_open_chat))
+        chat_window_action = QAction(tr("tray.chat_window_action"), self)
+        chat_window_action.triggered.connect(lambda: self._defer(lambda: self._on_open_chat_window(None, None, "")))
         status_menu = self._build_status_menu(settings.forced_status)
         status_message_action = QAction(tr("tray.status_message_action"), self)
         status_message_action.triggered.connect(lambda: self._defer(self._handle_set_status_message))
@@ -153,6 +155,7 @@ class TrayController(QObject):
         self._missed_menu_action = menu.addMenu(self._missed_menu)
         self._missed_menu_action.setVisible(False)
         menu.addAction(self._open_chat_action)
+        menu.addAction(chat_window_action)
         menu.addMenu(status_menu)
         menu.addSeparator()
         menu.addAction(about_action)
@@ -281,7 +284,7 @@ class TrayController(QObject):
     def _handle_missed_click(self, rid: str) -> None:
         title, room_type = self._unread.get(rid, ("", ""))
         self.clear_unread(rid)
-        self._on_quick_reply(rid, room_type, title)
+        self._on_open_chat_window(rid, room_type, title)
 
     def _start_blink(self) -> None:
         if not self._blink_timer.isActive():

@@ -4,6 +4,7 @@ import logging
 import random
 import threading
 import time
+from datetime import datetime, timezone
 
 from PySide6.QtCore import QThread, Signal
 
@@ -41,6 +42,8 @@ class RocketChatWorker(QThread):
     notification_received = Signal(str, str, str, str)  # rid, title, text, room_type
     reconnect_scheduled = Signal(float)  # seconds
     presence_status_changed = Signal(str)  # online/away/busy/offline — our own, server-confirmed
+    user_status_changed = Signal(str, str)  # user_id, status — *any* user, for a live DM-list presence dot
+    room_message_received = Signal(dict)  # a message posted to the currently-active room (see set_active_room)
 
     def __init__(self, server_url: str, verify_ssl: bool, password_provider, parent=None):
         super().__init__(parent)
@@ -54,6 +57,21 @@ class RocketChatWorker(QThread):
         self._reconfigure_requested = False
         self._wake_event = threading.Event()
         self._backoff = BACKOFF_BASE_SECONDS
+
+        # Cross-thread request to (un)subscribe to a room's live message
+        # stream -- set_active_room() is called from the GUI thread (chat
+        # window open/switch/close), read from the worker thread. Unlike
+        # stop()/retry_now()/update_server(), this can change *while*
+        # _read_loop() is already running mid-session, not just between
+        # sessions, so it's checked every loop iteration rather than only
+        # at reconnect time. Guarded by a lock since it's a plain
+        # read-modify pair, not an atomic single-value swap.
+        self._room_sub_lock = threading.Lock()
+        self._desired_room_rid: str | None = None
+        # Worker-thread-only state (no lock needed): what's actually
+        # subscribed right now, vs. what the GUI last asked for.
+        self._active_room_sub_id: str | None = None
+        self._active_room_rid: str | None = None
 
         # Set while a session is fully connected; read by deeplink resolution
         # from the GUI thread. Plain string assignment is atomic in CPython,
@@ -77,6 +95,20 @@ class RocketChatWorker(QThread):
         self._server_url = server_url
         self._verify_ssl = verify_ssl
         self._reconfigure_requested = True
+        self._wake_event.set()
+
+    def set_active_room(self, rid: str | None) -> None:
+        """Thread-safe: subscribe to `rid`'s live message stream (see
+        room_message_received), unsubscribing from whatever room was
+        previously active -- only one room is ever subscribed at a time,
+        matching the chat window's single-pane design. Pass None to
+        unsubscribe entirely (window closed). Takes effect within a few
+        seconds (picked up on _read_loop's next iteration, not
+        instantaneous -- the room's message *history* is fetched
+        separately over REST and shows up immediately regardless; this
+        only governs the live push of messages that arrive afterwards)."""
+        with self._room_sub_lock:
+            self._desired_room_rid = rid
         self._wake_event.set()
 
     def run(self) -> None:
@@ -139,11 +171,17 @@ class RocketChatWorker(QThread):
         sslopt = {"cert_reqs": 0} if not self._verify_ssl else None
         conn = DDPConnection(ws_url, sslopt=sslopt)
         conn.connect()
+        # A brand new connection has no subscriptions regardless of what a
+        # *previous* session had active -- reset so _sync_room_subscription
+        # re-sends the sub instead of assuming it's already in place.
+        self._active_room_sub_id = None
+        self._active_room_rid = None
         try:
             self._handshake(conn)
             self._ddp_login(conn, auth_token)
             self._subscribe_notifications(conn, user_id)
             self._subscribe_user_status(conn)
+            self._sync_room_subscription(conn)  # restore a chat window's open room, if any, after a reconnect
 
             self._backoff = BACKOFF_BASE_SECONDS  # reset only after a fully successful session
             self.current_auth_token = auth_token
@@ -201,9 +239,36 @@ class RocketChatWorker(QThread):
             if "sub-user-status" in msg.get("subs", []):
                 return
 
+    def _sync_room_subscription(self, conn: DDPConnection) -> None:
+        with self._room_sub_lock:
+            desired = self._desired_room_rid
+        if desired == self._active_room_rid:
+            return
+        if self._active_room_sub_id:
+            conn.send_json({"msg": "unsub", "id": self._active_room_sub_id})
+            self._active_room_sub_id = None
+            self._active_room_rid = None
+        if desired:
+            sub_id = f"sub-room-{desired}"
+            conn.send_json(
+                {"msg": "sub", "id": sub_id, "name": "stream-room-messages", "params": [desired, False]}
+            )
+            self._active_room_sub_id = sub_id
+            self._active_room_rid = desired
+            # Deliberately not waiting for a "ready"/"nosub" reply here like
+            # the startup subscriptions do: this can fire mid-_read_loop,
+            # where blocking to wait for one specific reply would stall
+            # processing of any other frames arriving in the meantime. The
+            # ack (or a "nosub" rejection, e.g. no access to that room) just
+            # flows through _read_loop like any other frame it doesn't
+            # specifically recognise -- harmless either way, since the
+            # room's message *history* is already fetched over REST
+            # independently and shown regardless of this subscription.
+
     def _read_loop(self, conn: DDPConnection, own_user_id: str) -> None:
         last_activity = time.monotonic()
         while not self._stop_requested and not self._reconfigure_requested:
+            self._sync_room_subscription(conn)
             remaining = IDLE_TIMEOUT_SECONDS - (time.monotonic() - last_activity)
             if remaining <= 0:
                 raise DDPError("Keine Aktivitaet vom Server (Idle-Watchdog)")
@@ -214,6 +279,8 @@ class RocketChatWorker(QThread):
 
             if msg.get("msg") == "ping":
                 conn.send_json({"msg": "pong"})
+            elif msg.get("msg") == "changed" and msg.get("collection") == "stream-room-messages":
+                self._handle_room_message_event(msg)
             elif msg.get("msg") == "changed" and msg.get("collection") == "stream-notify-user":
                 self._handle_notification_event(msg)
             elif msg.get("msg") == "changed" and msg.get("collection") == "stream-notify-logged":
@@ -245,11 +312,42 @@ class RocketChatWorker(QThread):
         if not args:
             return
         event = args[0]
-        if len(event) < 3 or event[0] != own_user_id:
+        if len(event) < 3:
             return
+        user_id = event[0]
         status = STATUS_CODE_MAP.get(event[2])
-        if status:
+        if not status:
+            return
+        # Broadcasts *every* logged-in user's presence, not just ours --
+        # user_status_changed is for e.g. a chat window's DM-list presence
+        # dots; presence_status_changed (pre-existing) stays own-user-only
+        # for the tray icon's colour.
+        self.user_status_changed.emit(user_id, status)
+        if user_id == own_user_id:
             self.presence_status_changed.emit(status)
+
+    def _handle_room_message_event(self, msg: dict) -> None:
+        # Same shape as the notification event: fields.args is a
+        # *list containing one* message dict, confirmed live. fields.
+        # eventName is the room id -- double-checked against
+        # _active_room_rid since unsub isn't necessarily instant and a
+        # stale event for a room we've since switched away from could
+        # still arrive in the meantime.
+        fields = msg.get("fields", {})
+        if fields.get("eventName") != self._active_room_rid:
+            return
+        args = fields.get("args") or []
+        if not args:
+            return
+        message = dict(args[0])
+        ts = message.get("ts")
+        if isinstance(ts, dict) and "$date" in ts:
+            # DDP's EJSON date encoding (epoch ms) differs from the REST
+            # API's plain ISO-8601 string for the same field -- normalise
+            # to ISO so downstream rendering doesn't need to know whether a
+            # message came from a REST history fetch or this live stream.
+            message["ts"] = datetime.fromtimestamp(ts["$date"] / 1000, tz=timezone.utc).isoformat()
+        self.room_message_received.emit(message)
 
     def _expect(self, conn: DDPConnection, accepted_types: set[str]) -> dict:
         """Read frames until one whose msg is in accepted_types arrives,
