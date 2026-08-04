@@ -7,7 +7,7 @@ import threading
 from datetime import datetime
 
 import requests
-from PySide6.QtCore import Qt, QUrl, Signal
+from PySide6.QtCore import Qt, QSize, QUrl, Signal
 from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap, QTextDocument
 from PySide6.QtWidgets import (
     QDialog,
@@ -19,7 +19,6 @@ from PySide6.QtWidgets import (
     QPushButton,
     QTextBrowser,
     QVBoxLayout,
-    QWidget,
 )
 
 from .i18n import tr
@@ -28,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 HISTORY_COUNT = 10
 AVATAR_SIZE = 32
+SIDEBAR_AVATAR_SIZE = 20
 STATUS_DOT_SIZE = 10
 _HTTP_TIMEOUT = 10
 
@@ -91,6 +91,20 @@ def fetch_avatar(server_url: str, username: str, verify_ssl: bool = True) -> byt
         response.raise_for_status()
     except requests.RequestException as exc:
         logger.warning("Konnte Avatar fuer %s nicht laden: %s", username, exc)
+        return None
+    return response.content
+
+
+def fetch_room_avatar(server_url: str, rid: str, verify_ssl: bool = True) -> bytes | None:
+    """Same contract as fetch_avatar above, but for a channel/group's own
+    avatar -- confirmed live against the real server: /avatar/room/<rid> is
+    unauthenticated and always returns something (a custom-uploaded image or
+    a generated placeholder SVG), same as /avatar/<username>."""
+    try:
+        response = requests.get(f"{server_url}/avatar/room/{rid}", verify=verify_ssl, timeout=_HTTP_TIMEOUT)
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        logger.warning("Konnte Raum-Avatar fuer %s nicht laden: %s", rid, exc)
         return None
     return response.content
 
@@ -269,15 +283,54 @@ def _format_message(message: dict, known_avatars: set[str]) -> str:
 
 
 def _status_dot_icon(status: str) -> QIcon:
-    pixmap = QPixmap(STATUS_DOT_SIZE, STATUS_DOT_SIZE)
+    """A bare status dot, centred on a SIDEBAR_AVATAR_SIZE canvas so it lines
+    up with _avatar_status_icon's dot position -- used as the fallback for a
+    DM contact whose avatar hasn't resolved yet (or failed to load)."""
+    pixmap = QPixmap(SIDEBAR_AVATAR_SIZE, SIDEBAR_AVATAR_SIZE)
     pixmap.fill(Qt.GlobalColor.transparent)
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     painter.setPen(Qt.PenStyle.NoPen)
     painter.setBrush(QColor(_STATUS_COLORS.get(status, _STATUS_COLORS["offline"])))
-    painter.drawEllipse(0, 0, STATUS_DOT_SIZE, STATUS_DOT_SIZE)
+    offset = (SIDEBAR_AVATAR_SIZE - STATUS_DOT_SIZE) // 2
+    painter.drawEllipse(offset, offset, STATUS_DOT_SIZE, STATUS_DOT_SIZE)
     painter.end()
     return QIcon(pixmap)
+
+
+def _centered_avatar_canvas(pixmap: QPixmap) -> tuple[QPixmap, QPainter]:
+    scaled = pixmap.scaled(
+        SIDEBAR_AVATAR_SIZE, SIDEBAR_AVATAR_SIZE, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
+    )
+    canvas = QPixmap(SIDEBAR_AVATAR_SIZE, SIDEBAR_AVATAR_SIZE)
+    canvas.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(canvas)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    x = (SIDEBAR_AVATAR_SIZE - scaled.width()) // 2
+    y = (SIDEBAR_AVATAR_SIZE - scaled.height()) // 2
+    painter.drawPixmap(x, y, scaled)
+    return canvas, painter
+
+
+def _room_avatar_icon(pixmap: QPixmap) -> QIcon:
+    canvas, painter = _centered_avatar_canvas(pixmap)
+    painter.end()
+    return QIcon(canvas)
+
+
+def _avatar_status_icon(avatar: QPixmap | None, status: str) -> QIcon:
+    """A DM contact's sidebar icon: their avatar with a small status-colour
+    dot in the bottom-right corner, so the photo and presence are both
+    visible at a glance. Falls back to a bare dot (_status_dot_icon) until
+    the avatar itself has resolved."""
+    if avatar is None:
+        return _status_dot_icon(status)
+    canvas, painter = _centered_avatar_canvas(avatar)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor(_STATUS_COLORS.get(status, _STATUS_COLORS["offline"])))
+    painter.drawEllipse(SIDEBAR_AVATAR_SIZE - STATUS_DOT_SIZE, SIDEBAR_AVATAR_SIZE - STATUS_DOT_SIZE, STATUS_DOT_SIZE, STATUS_DOT_SIZE)
+    painter.end()
+    return QIcon(canvas)
 
 
 _ROOM_ROLE = Qt.ItemDataRole.UserRole
@@ -306,6 +359,8 @@ class ChatWindow(QDialog):
     _channels_loaded = Signal(list)
     _dms_loaded = Signal(list)
     _status_resolved = Signal(str, str)  # username, status -- one at a time as each resolves
+    _room_avatar_resolved = Signal(str, object)  # rid, avatar_bytes|None
+    _dm_avatar_resolved = Signal(str, object)  # username, avatar_bytes|None
     _history_loaded = Signal(list, dict)  # messages, {username: avatar_bytes}
     _send_finished = Signal(bool, str)
     _live_avatar_ready = Signal(str, object, dict)  # username, avatar_bytes|None, message
@@ -325,28 +380,25 @@ class ChatWindow(QDialog):
         self._rid = initial_rid
         self._room_type = initial_room_type
         self._known_avatars: set[str] = set()  # usernames already registered as document resources
+        self._room_items: dict[str, QListWidgetItem] = {}  # rid -> its sidebar QListWidgetItem (channels/groups)
         self._dm_items: dict[str, QListWidgetItem] = {}  # username -> its sidebar QListWidgetItem
         self._dm_username_by_id: dict[str, str] = {}  # other-participant user_id -> username, for live presence
+        self._dm_avatars: dict[str, QPixmap] = {}  # username -> resolved avatar, for re-compositing on status changes
+        self._dm_status: dict[str, str] = {}  # username -> last-known status, for re-compositing on avatar arrival
 
         self.setWindowTitle(tr("chat_window.title", room=initial_title) if initial_title else tr("chat_window.title_generic"))
         self.setModal(False)
         self.resize(680, 440)
 
-        self._channel_list = QListWidget()
-        self._channel_list.setMaximumWidth(220)
-        self._channel_list.itemClicked.connect(self._handle_sidebar_click)
-        self._dm_list = QListWidget()
-        self._dm_list.setMaximumWidth(220)
-        self._dm_list.itemClicked.connect(self._handle_sidebar_click)
-
-        sidebar = QVBoxLayout()
-        sidebar.addWidget(_section_label(tr("chat_window.channels_section")))
-        sidebar.addWidget(self._channel_list, stretch=1)
-        sidebar.addWidget(_section_label(tr("chat_window.dms_section")))
-        sidebar.addWidget(self._dm_list, stretch=1)
-        sidebar_widget = QWidget()
-        sidebar_widget.setLayout(sidebar)
-        sidebar_widget.setMaximumWidth(220)
+        # One continuous list for channels/groups/DMs (with in-list section
+        # headers, see _make_header_item) rather than separate boxed
+        # QListWidgets stacked on top of each other -- avoids the
+        # look-like-several-mini-windows effect two independently-scrolling,
+        # independently-bordered lists had.
+        self._sidebar_list = QListWidget()
+        self._sidebar_list.setMaximumWidth(220)
+        self._sidebar_list.setIconSize(QSize(SIDEBAR_AVATAR_SIZE, SIDEBAR_AVATAR_SIZE))
+        self._sidebar_list.itemClicked.connect(self._handle_sidebar_click)
 
         self._history_view = QTextBrowser()
         self._history_view.setOpenExternalLinks(True)
@@ -359,6 +411,11 @@ class ChatWindow(QDialog):
         self._send_button = QPushButton(tr("quick_reply.send"))
         self._send_button.setDefault(True)
         self._send_button.clicked.connect(self._handle_send)
+        # QPushButton's own sizeHint tends to come out taller than QLineEdit's
+        # under most styles (extra padding for the button "chrome") -- match
+        # the input's height to the button's rather than the other way round,
+        # so the input doesn't shrink text-wise, it just gains padding.
+        self._input.setFixedHeight(self._send_button.sizeHint().height())
 
         self._status_label = QLabel()
         self._status_label.setVisible(False)
@@ -373,12 +430,14 @@ class ChatWindow(QDialog):
         chat_side.addLayout(input_row)
 
         root = QHBoxLayout(self)
-        root.addWidget(sidebar_widget)
+        root.addWidget(self._sidebar_list)
         root.addLayout(chat_side, stretch=1)
 
         self._channels_loaded.connect(self._display_channels)
         self._dms_loaded.connect(self._display_dms)
         self._status_resolved.connect(self._handle_status_resolved)
+        self._room_avatar_resolved.connect(self._handle_room_avatar_resolved)
+        self._dm_avatar_resolved.connect(self._handle_dm_avatar_resolved)
         self._history_loaded.connect(self._display_history)
         self._send_finished.connect(self._handle_send_finished)
         self._live_avatar_ready.connect(self._handle_live_avatar_ready)
@@ -399,43 +458,83 @@ class ChatWindow(QDialog):
         super().closeEvent(event)
 
     # --- sidebar population -------------------------------------------------
+    #
+    # Fetch order matters here: _fetch_sidebar_worker runs once per window
+    # lifetime (kicked off from __init__ only, no live channel-list refresh
+    # exists yet), and _display_channels() clears+rebuilds the *entire*
+    # sidebar list -- safe only because it always runs before _display_dms()
+    # populates the DM section below it. If a manual sidebar refresh is ever
+    # added, this ordering assumption needs revisiting.
 
     def _fetch_sidebar_worker(self) -> None:
         channels = fetch_channels(self._server_url, self._auth_token, self._user_id, self._verify_ssl)
         self._channels_loaded.emit(channels)
+        for c in channels:
+            avatar_data = fetch_room_avatar(self._server_url, c["rid"], self._verify_ssl)
+            self._room_avatar_resolved.emit(c["rid"], avatar_data)
+
         dms = fetch_direct_messages(self._server_url, self._auth_token, self._user_id, self._own_username, self._verify_ssl)
         self._dms_loaded.emit(dms)
         for dm in dms:
             status = fetch_user_status(self._server_url, self._auth_token, self._user_id, dm["username"], self._verify_ssl)
             self._status_resolved.emit(dm["username"], status)
+            avatar_data = fetch_avatar(self._server_url, dm["username"], self._verify_ssl)
+            self._dm_avatar_resolved.emit(dm["username"], avatar_data)
+
+    def _add_sidebar_section(self, label: str, rooms: list[dict]) -> None:
+        self._sidebar_list.addItem(_make_header_item(label))
+        for c in rooms:
+            item = QListWidgetItem(c["name"])
+            item.setData(_ROOM_ROLE, (c["rid"], c["room_type"], c["name"]))
+            self._sidebar_list.addItem(item)
+            self._room_items[c["rid"]] = item
+            if c["rid"] == self._rid:
+                self._sidebar_list.setCurrentItem(item)
 
     def _display_channels(self, channels: list[dict]) -> None:
-        self._channel_list.clear()
-        for c in channels:
-            prefix = "\U0001F512 " if c["room_type"] == "p" else "# "  # lock for private groups
-            item = QListWidgetItem(prefix + c["name"])
-            item.setData(_ROOM_ROLE, (c["rid"], c["room_type"], c["name"]))
-            self._channel_list.addItem(item)
-            if c["rid"] == self._rid:
-                self._channel_list.setCurrentItem(item)
+        self._sidebar_list.clear()
+        self._room_items.clear()
+        self._add_sidebar_section(tr("chat_window.channels_section"), [c for c in channels if c["room_type"] == "c"])
+        self._add_sidebar_section(tr("chat_window.groups_section"), [c for c in channels if c["room_type"] == "p"])
 
     def _display_dms(self, dms: list[dict]) -> None:
-        self._dm_list.clear()
         self._dm_items.clear()
         self._dm_username_by_id.clear()
+        self._sidebar_list.addItem(_make_header_item(tr("chat_window.dms_section")))
         for dm in dms:
             item = QListWidgetItem(_status_dot_icon("offline"), dm["username"])
             item.setData(_ROOM_ROLE, (dm["rid"], "d", dm["username"]))
-            self._dm_list.addItem(item)
+            self._sidebar_list.addItem(item)
             self._dm_items[dm["username"]] = item
             self._dm_username_by_id[dm["user_id"]] = dm["username"]
             if dm["rid"] == self._rid:
-                self._dm_list.setCurrentItem(item)
+                self._sidebar_list.setCurrentItem(item)
 
-    def _handle_status_resolved(self, username: str, status: str) -> None:
+    def _handle_room_avatar_resolved(self, rid: str, data: bytes | None) -> None:
+        if not data:
+            return
+        item = self._room_items.get(rid)
+        if not item:
+            return
+        pixmap = QPixmap()
+        if pixmap.loadFromData(data):
+            item.setIcon(_room_avatar_icon(pixmap))
+
+    def _update_dm_icon(self, username: str) -> None:
         item = self._dm_items.get(username)
         if item:
-            item.setIcon(_status_dot_icon(status))
+            item.setIcon(_avatar_status_icon(self._dm_avatars.get(username), self._dm_status.get(username, "offline")))
+
+    def _handle_dm_avatar_resolved(self, username: str, data: bytes | None) -> None:
+        if data:
+            pixmap = QPixmap()
+            if pixmap.loadFromData(data):
+                self._dm_avatars[username] = pixmap
+        self._update_dm_icon(username)
+
+    def _handle_status_resolved(self, username: str, status: str) -> None:
+        self._dm_status[username] = status
+        self._update_dm_icon(username)
 
     def _handle_presence_update(self, user_id: str, status: str) -> None:
         # Live presence pushes identify the user by id; _display_dms built
@@ -447,7 +546,10 @@ class ChatWindow(QDialog):
             self._handle_status_resolved(username, status)
 
     def _handle_sidebar_click(self, item: QListWidgetItem) -> None:
-        rid, room_type, title = item.data(_ROOM_ROLE)
+        data = item.data(_ROOM_ROLE)
+        if data is None:  # a non-selectable section header (see _make_header_item)
+            return
+        rid, room_type, title = data
         if rid == self._rid:
             return
         self.select_room(rid, room_type, title)
@@ -570,7 +672,15 @@ class ChatWindow(QDialog):
         self._input.setFocus()
 
 
-def _section_label(text: str) -> QLabel:
-    label = QLabel(text)
-    label.setStyleSheet("font-weight: 600; color: palette(placeholder-text);")
-    return label
+def _make_header_item(text: str) -> QListWidgetItem:
+    """A non-clickable section heading (e.g. "Kanäle") living directly in
+    the sidebar list, rather than a separate QLabel above a separate list
+    box -- keeps channels/groups/DMs as one continuous scrollable list
+    instead of looking like several stacked-but-separate mini windows."""
+    item = QListWidgetItem(text)
+    item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+    font = item.font()
+    font.setBold(True)
+    item.setFont(font)
+    item.setForeground(QColor("#888888"))
+    return item
