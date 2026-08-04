@@ -93,6 +93,12 @@ _DE = {
     "sounds.complete": "Fertig-Ton",
     "common.cancel": "Abbrechen",
     "common.ok": "OK",
+    "cli.usage": 'Verwendung: rocketchat <ziel1>[,<ziel2>,...] "<nachricht>"\nBeispiel:   rocketchat alice,bob,#general "Hallo zusammen!"',
+    "cli.config_error": "Konfigurationsfehler: {error}",
+    "cli.no_password": "Kein gespeichertes Passwort fuer {username} gefunden. Bitte zuerst einmal ueber die Tray-App anmelden.",
+    "cli.login_failed": "Anmeldung fehlgeschlagen: {error}",
+    "cli.sent_ok": "OK     -> {channel}",
+    "cli.send_failed": "FEHLER -> {channel}: {error}",
 }
 
 _EN = {
@@ -171,6 +177,12 @@ _EN = {
     "sounds.complete": "Complete",
     "common.cancel": "Cancel",
     "common.ok": "OK",
+    "cli.usage": 'Usage: rocketchat <target1>[,<target2>,...] "<message>"\nExample: rocketchat alice,bob,#general "Hello everyone!"',
+    "cli.config_error": "Configuration error: {error}",
+    "cli.no_password": "No stored password found for {username}. Please log in via the tray app first.",
+    "cli.login_failed": "Login failed: {error}",
+    "cli.sent_ok": "OK     -> {channel}",
+    "cli.send_failed": "ERROR  -> {channel}: {error}",
 }
 
 _FR = {
@@ -249,6 +261,12 @@ _FR = {
     "sounds.complete": "Terminé",
     "common.cancel": "Annuler",
     "common.ok": "OK",
+    "cli.usage": 'Utilisation : rocketchat <cible1>[,<cible2>,...] "<message>"\nExemple :    rocketchat alice,bob,#general "Bonjour à tous !"',
+    "cli.config_error": "Erreur de configuration : {error}",
+    "cli.no_password": "Aucun mot de passe enregistré pour {username}. Merci de vous connecter d'abord via l'application.",
+    "cli.login_failed": "Échec de la connexion : {error}",
+    "cli.sent_ok": "OK      -> {channel}",
+    "cli.send_failed": "ERREUR  -> {channel} : {error}",
 }
 
 _IT = {
@@ -327,6 +345,12 @@ _IT = {
     "sounds.complete": "Completato",
     "common.cancel": "Annulla",
     "common.ok": "OK",
+    "cli.usage": 'Uso: rocketchat <destinatario1>[,<destinatario2>,...] "<messaggio>"\nEsempio: rocketchat alice,bob,#general "Ciao a tutti!"',
+    "cli.config_error": "Errore di configurazione: {error}",
+    "cli.no_password": "Nessuna password salvata per {username}. Accedi prima tramite l'app tray.",
+    "cli.login_failed": "Accesso non riuscito: {error}",
+    "cli.sent_ok": "OK      -> {channel}",
+    "cli.send_failed": "ERRORE  -> {channel}: {error}",
 }
 
 _ES = {
@@ -405,6 +429,12 @@ _ES = {
     "sounds.complete": "Completado",
     "common.cancel": "Cancelar",
     "common.ok": "OK",
+    "cli.usage": 'Uso: rocketchat <destino1>[,<destino2>,...] "<mensaje>"\nEjemplo: rocketchat alice,bob,#general "¡Hola a todos!"',
+    "cli.config_error": "Error de configuración: {error}",
+    "cli.no_password": "No se encontró contraseña guardada para {username}. Inicia sesión primero desde la app.",
+    "cli.login_failed": "Error al iniciar sesión: {error}",
+    "cli.sent_ok": "OK      -> {channel}",
+    "cli.send_failed": "ERROR   -> {channel}: {error}",
 }
 
 _CATALOGS = {"de": _DE, "en": _EN, "fr": _FR, "it": _IT, "es": _ES}

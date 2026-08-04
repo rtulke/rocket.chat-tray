@@ -7,9 +7,9 @@ import urllib3
 
 from . import auth
 from .config import AdminConfig, ConfigError, UserSettings
+from .i18n import tr
 
 _HTTP_TIMEOUT = 10
-USAGE = 'Verwendung: rocketchat <ziel1>[,<ziel2>,...] "<nachricht>"\nBeispiel:   rocketchat alice,bob,#general "Hallo zusammen!"'
 
 
 def _resolve_channel_param(target: str) -> str:
@@ -54,20 +54,20 @@ def main() -> int:
     whichever OS user runs it. Useful for manually triggering a real
     notification while developing/testing the tray app itself."""
     if len(sys.argv) != 3:
-        print(USAGE, file=sys.stderr)
+        print(tr("cli.usage"), file=sys.stderr)
         return 2
 
     targets_arg, text = sys.argv[1], sys.argv[2]
     targets = [t for t in (part.strip() for part in targets_arg.split(",")) if t]
     if not targets:
-        print(USAGE, file=sys.stderr)
+        print(tr("cli.usage"), file=sys.stderr)
         return 2
 
     settings = UserSettings.load()
     try:
         admin_config = AdminConfig.load()
     except ConfigError as exc:
-        print(f"Konfigurationsfehler: {exc}", file=sys.stderr)
+        print(tr("cli.config_error", error=exc), file=sys.stderr)
         return 1
     if settings.server_url_override:
         admin_config.server_url = settings.server_url_override
@@ -79,17 +79,13 @@ def main() -> int:
     username = auth.current_username()
     password = auth.get_stored_password(username)
     if not password:
-        print(
-            f"Kein gespeichertes Passwort fuer {username} gefunden. "
-            "Bitte zuerst einmal ueber die Tray-App anmelden.",
-            file=sys.stderr,
-        )
+        print(tr("cli.no_password", username=username), file=sys.stderr)
         return 1
 
     try:
         auth_token, user_id = auth.rest_login(admin_config.server_url, username, password, admin_config.verify_ssl)
     except auth.LoginError as exc:
-        print(f"Anmeldung fehlgeschlagen: {exc}", file=sys.stderr)
+        print(tr("cli.login_failed", error=exc), file=sys.stderr)
         return 1
 
     exit_code = 0
@@ -97,9 +93,9 @@ def main() -> int:
         channel = _resolve_channel_param(target)
         ok, error = send(admin_config.server_url, auth_token, user_id, channel, text, admin_config.verify_ssl)
         if ok:
-            print(f"OK     -> {channel}")
+            print(tr("cli.sent_ok", channel=channel))
         else:
-            print(f"FEHLER -> {channel}: {error}", file=sys.stderr)
+            print(tr("cli.send_failed", channel=channel, error=error), file=sys.stderr)
             exit_code = 1
     return exit_code
 
