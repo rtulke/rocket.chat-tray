@@ -48,10 +48,12 @@ DEFAULT_SETTINGS = {
         "show_full_names": True,
         "hide_deactivated_users": False,
         "name_order": "last_first",
+        "dm_sort_order": "name",
     },
 }
 
 NAME_ORDER_OPTIONS = ("last_first", "first_last")
+DM_SORT_ORDER_OPTIONS = ("name", "recent")
 
 
 class ConfigError(Exception):
@@ -266,3 +268,17 @@ class UserSettings:
         if value not in NAME_ORDER_OPTIONS:
             raise ValueError(f"Unbekannte Namensreihenfolge: {value!r}")
         self._data["chat"]["name_order"] = value
+
+    @property
+    def dm_sort_order(self) -> str:
+        """"name" (default -- alphabetical by contact name) or "recent"
+        (most recently messaged, either direction, first) for the chat
+        window sidebar's Direktnachrichten section -- see
+        chat_window.ChatWindow._sort_dm_raw()."""
+        return self._data["chat"]["dm_sort_order"]
+
+    @dm_sort_order.setter
+    def dm_sort_order(self, value: str) -> None:
+        if value not in DM_SORT_ORDER_OPTIONS:
+            raise ValueError(f"Unbekannte DM-Sortierung: {value!r}")
+        self._data["chat"]["dm_sort_order"] = value

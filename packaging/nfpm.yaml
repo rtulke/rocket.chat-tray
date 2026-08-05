@@ -22,6 +22,22 @@ depends:
   - python3 (>= 3.11)
   - libglib2.0-bin
   - pulseaudio-utils
+  # PySide6-Essentials' QtWidgets fails to import without these -- normally
+  # invisible since a real GNOME desktop already has every one of them
+  # (GNOME Shell itself needs GTK/X11-or-Wayland/Mesa), but confirmed live
+  # via packaging/build-local.sh's minimal-container install-verify that
+  # they're real, undeclared runtime dependencies, not just something that
+  # happens to always be present. Declared explicitly so install-time
+  # dependency resolution doesn't silently rely on the target already
+  # having a full desktop environment.
+  - libgl1
+  - libegl1
+  - libxkbcommon0
+  - libxkbcommon-x11-0
+  - libxcb-cursor0
+  - libdrm2
+  - libgbm1
+  - libgtk-3-0
 
 recommends:
   - gnome-shell-extension-appindicator

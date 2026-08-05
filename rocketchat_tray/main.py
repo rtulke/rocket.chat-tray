@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import signal
 import sys
 
@@ -32,6 +33,23 @@ def _load_icons() -> dict[str, QIcon]:
 
 
 def main() -> int:
+    # Mutter never adds its own compositor drop-shadow to a *native-Wayland*
+    # client window -- confirmed live: even with Qt's bundled "adwaita"
+    # Wayland decoration plugin (QT_WAYLAND_DECORATION=adwaita, matches
+    # GNOME's title-bar look pixel-for-pixel) there was still no shadow at
+    # all, vs. a real -- if subtle, matching GNOME's own understated style
+    # -- shadow appearing immediately for the exact same window forced onto
+    # xcb/XWayland instead. Mutter has always drawn that shadow for X11
+    # clients (long predates Wayland), so running this app's windows
+    # through XWayland gets it "for free" without drawing anything
+    # ourselves. setdefault so an explicit override (e.g. QT_QPA_PLATFORM=
+    # wayland, to force native Wayland back) isn't silently clobbered. Has
+    # to be set before QApplication() -- that's when Qt picks its platform
+    # plugin. GNOME's tray icon (StatusNotifierItem over D-Bus) and
+    # notifications are unaffected either way -- both are D-Bus protocols,
+    # not part of the QPA window-surface layer this setting controls.
+    os.environ.setdefault("QT_QPA_PLATFORM", "xcb")
+
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
     app.setApplicationName("Rocket.Chat Tray")
@@ -184,6 +202,7 @@ def main() -> int:
             chat_window = ChatWindow(
                 admin_config.server_url, worker.current_auth_token, worker.current_user_id,
                 auth.current_username(), worker, settings, rid, room_type, title, admin_config.verify_ssl,
+                on_open_settings=open_settings,
             )
             chat_window.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
 

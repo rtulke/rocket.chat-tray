@@ -88,6 +88,44 @@ nfpm package -f packaging/nfpm.yaml -p deb -t rocketchat-tray_${PKG_VERSION}_amd
 
 Build this on the same distribution/version you intend to install on — the bundled virtualenv references that system's own `python3`, so it isn't portable across differing Python versions (see the comment header in `packaging/build-venv.sh`). CI (`.github/workflows/release.yml`) builds and verifies one package per supported distro this way on every push, and publishes them to GitHub Releases on a `vX.Y.Z` tag push.
 
+### Building the `.deb` locally in a container (any host, any target distro)
+
+```bash
+bash packaging/build-local.sh              # defaults to ubuntu2404
+bash packaging/build-local.sh debian13     # or any of: debian12 debian13 ubuntu2404 ubuntu2604
+```
+
+Runs the same build-then-install-verify steps CI does, per distro, in a matching Docker/Podman container — so it works regardless of what your own machine runs, and builds from your *current working tree* (uncommitted changes included), not the last commit. Nothing it does touches your working directory except dropping the finished `.deb` into `dist/`; install it yourself to actually test the app (`sudo dpkg -i dist/rocketchat-tray_*.deb`), since a container has no real display/D-Bus session to run it in.
+
+Recommended flow: `build-local.sh` first (fast, catches build/packaging/dependency problems immediately) → install and test the result yourself → only then `packaging/release.sh` to tag and trigger the full 4-distro CI build + GitHub Release.
+
+#### Troubleshooting: "insufficient UIDs or GIDs" / rootless Podman
+
+If `build-local.sh` fails while pulling the base image with something like:
+
+```
+Error: copying system image from manifest list: writing blob: adding layer with blob
+"sha256:...": processing tar file(potentially insufficient UIDs or GIDs available in
+user namespace (requested 0:42 for /etc/gshadow): Check /etc/subuid and /etc/subgid if
+configured locally and run "podman system migrate": lchown /etc/gshadow: invalid argument)
+```
+
+your account has no subuid/subgid range allocated (`cat /etc/subuid /etc/subgid` shows no
+line for your username — confirmed live: one machine had only a leftover `system:...` entry,
+nothing for the actual user running the build). Rootless Podman needs that range to build the
+container's user-namespace mapping; without it, it can't even unpack a base image containing
+files owned by uids/gids beyond your own (e.g. Ubuntu's `/etc/gshadow`, group id 42). This is a
+one-time per-machine/per-user setup gap, not a `build-local.sh` bug. Fix (root required — check
+the existing ranges in `/etc/subuid`/`/etc/subgid` first and pick a block that doesn't overlap):
+
+```bash
+sudo usermod --add-subuids 165536-231071 --add-subgids 165536-231071 "$USER"
+podman system migrate
+```
+
+`build-local.sh` itself needs no further changes or re-run of anything else — just retry it
+after this.
+
 ## License
 
 [MIT](LICENSE)

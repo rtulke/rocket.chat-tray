@@ -146,10 +146,16 @@ class SettingsDialog(QDialog):
         self._show_full_names_toggle.toggled.connect(_update_name_order_enabled)
         _update_name_order_enabled(settings.show_full_names)
 
+        self._dm_sort_order_combo = QComboBox()
+        self._dm_sort_order_combo.addItem(tr("settings.dm_sort_order_name"), userData="name")
+        self._dm_sort_order_combo.addItem(tr("settings.dm_sort_order_recent"), userData="recent")
+        self._dm_sort_order_combo.setCurrentIndex(0 if settings.dm_sort_order == "name" else 1)
+
         chat_card = _boxed_list([
             _label_row(tr("settings.show_full_names"), self._show_full_names_toggle),
             _label_row(tr("settings.name_order"), self._name_order_combo),
             _label_row(tr("settings.hide_deactivated_users"), self._hide_deactivated_toggle),
+            _label_row(tr("settings.dm_sort_order"), self._dm_sort_order_combo),
         ])
 
         self._sound_choices = sounds.available_choices()
@@ -265,6 +271,7 @@ class SettingsDialog(QDialog):
         self._settings.show_full_names = self._show_full_names_toggle.isChecked()
         self._settings.name_order = self._name_order_combo.currentData()
         self._settings.hide_deactivated_users = self._hide_deactivated_toggle.isChecked()
+        self._settings.dm_sort_order = self._dm_sort_order_combo.currentData()
         self._settings.idle_detection_enabled = self._idle_toggle.isChecked()
         self._settings.idle_threshold_minutes = self._idle_minutes_slider.value() * 5
         self._settings.sound_choice = self._sound_choice_combo.currentData()
